@@ -15,6 +15,8 @@ You are monitoring an unattended overnight experiment on this pod. It is **alrea
 2. If everything is advancing normally, do nothing except note it briefly. Silence is the correct output for a healthy run.
 3. If something is wrong, diagnose it and apply only the fixes listed below.
 
+**Important — you are running as the `dev` user, but the experiment runs as root.** The models live in root's HF cache (`/root/.cache/huggingface`), which you cannot read. So any time you re-run a pipeline step, prefix it with `sudo -E` (you have passwordless sudo) — otherwise it fails on permissions or re-downloads ~60GB. Reading logs, STATE.md, `nvidia-smi`, and `df -h` needs no sudo.
+
 **Fixes you are authorized to make without asking:**
 - **Disk nearly full** (<50GB free): delete `/workspace/exp/<key>/activations` for any model whose `release/<key>/` directory already exists (vectors are saved; activations are disposable). Log what you deleted in STATE.md.
 - **CUDA OOM in an activations log:** lower the batch size for the affected model by re-running just that step with a smaller `--batch_size` (e.g. 8, then 4), matching the exact command in the log. The supervisor will pick up the completed work.
