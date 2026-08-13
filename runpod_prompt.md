@@ -16,7 +16,7 @@ Compute the **Assistant Axis** (Lu et al. 2026, arXiv:2601.10387 — paper at `a
 1. `google/gemma-3-27b-it` — same scale as the paper's Gemma 2 27B, one generation newer. Run this first: known-good scale, lowest risk.
 2. `google/gemma-4-31B-it` — the dense Gemma 4 flagship (deliberately NOT the 26B-A4B MoE — untested tooling assumptions).
 
-These are strong, heavily post-trained role-players, so no capability gate is needed — a short smoke test per model, then the full pipeline. Headline result per model: does PC1 of the 60-persona vector space align with the Assistant Axis (paper: cosine >0.71 at the middle layer), with the default assistant at one extreme?
+These are strong, heavily post-trained role-players, so no capability gate is needed — a short smoke test per model, then the full pipeline. Headline result per model: does PC1 of the 90-persona vector space align with the Assistant Axis (paper: cosine >0.71 at the middle layer), with the default assistant at one extreme?
 
 ## Setup
 
@@ -34,7 +34,7 @@ These are strong, heavily post-trained role-players, so no capability gate is ne
 5 restartable steps in `assistant-axis/pipeline/` (each skips existing outputs — re-running is always safe):
 1. `1_generate.py` (vLLM) → 2. `2_activations.py` (all layers, post-MLP residual) + 3. `3_judge.py` in parallel (**always `--judge_model openai/gpt-4.1-mini`** — the default `gpt-4.1-mini` is not a valid OpenRouter ID) → 4. `4_vectors.py` (score-3 responses only) → 5. `5_axis.py` (`axis = mean(default) − mean(roles)`).
 
-**Personas: use the committed `roles_60.json` at this repo's root** (60 roles + `default`; pass via `--roles`). This exact list is shared with the SPP-3B sprint track for cross-track comparability — do not re-derive or substitute roles.
+**Personas: use the committed `roles_90.json` at this repo's root** (90 roles + `default`; pass via `--roles`). This exact list is shared with the SPP-3B sprint track for cross-track comparability — do not re-derive or substitute roles.
 
 **Scale: `--question_count 120` (600 responses/role), `--min_count 25`** — matching the SPP track so metrics are comparable.
 
@@ -48,7 +48,7 @@ These are strong, heavily post-trained role-players, so no capability gate is ne
 ## Protocol
 
 1. **Phase 0 — smoke test per model (~20 min):** 2 roles (`pirate`, plus `default`), `--question_count 10`, full 5-step chain. Eyeball a few responses; include 2–3 in the report.
-2. **Phase 1 — full run, gemma-3-27b-it first:** all 60 roles + default. Steps 2+3 in parallel after step 1. Budget estimate: 61 roles × 600 ≈ 37k generations — measure throughput in Phase 0 and project honestly in `/workspace/exp/STATE.md`. Judge ≈ 37k calls/model (~$5–10).
+2. **Phase 1 — full run, gemma-3-27b-it first:** all 90 roles + default. Steps 2+3 in parallel after step 1. Budget estimate: 91 roles × 600 ≈ 55k generations — measure throughput in Phase 0 and project honestly in `/workspace/exp/STATE.md`. Judge ≈ 55k calls/model (~$8–15).
 3. **Phase 2 — gemma-4-31B-it:** same, after gemma-3 completes (or in parallel only if you have 4 GPUs).
 4. **Analysis per model** (write and test the script during Phase 0, run automatically): PCA on standardized role vectors at the target layer; report PC1↔axis cosine (headline), variance explained (paper: 4–19 PCs for 70%), default's position, top/bottom-10 roles by axis projection (helpers positive, demons/wraiths negative expected), layer sweep of PC1↔axis cosine; plots (scree, PC1-vs-PC2 colored by axis projection, ranked projections). Write `/workspace/exp/<model>/RESULTS.md` and a combined `/workspace/exp/COMPARISON.md` (gemma-3-27b vs gemma-4-31B, per-model metrics only — never compare raw directions across models).
 5. **Backup after each model completes:** upload `/workspace/exp/<model>/` (vectors, axis.pt, PCA outputs, plots, reports — NOT raw activations/responses) to a **private** HF dataset `timf34/gemma-assistant-axis-results`.
