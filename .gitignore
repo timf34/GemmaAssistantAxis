@@ -1,0 +1,7 @@
+# Secrets — never commit (assistant-axis/.env holds live OpenRouter + HF keys)
+.env
+.env.*
+*/.env
+
+# OS noise
+.DS_Store
