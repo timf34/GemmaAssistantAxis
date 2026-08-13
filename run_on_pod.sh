@@ -94,6 +94,32 @@ case "${SHUTDOWN:-}" in
   terminate) RP_ACTION="remove" ;;
   *) RP_ACTION="" ;;
 esac
+# Optionally push the lightweight results (reports, plots, summaries — NOT the .pt vectors, which
+# are ~370MB/model and live on HF) to GitHub before shutting down. Needs non-interactive git auth,
+# e.g.  git remote set-url origin https://<TOKEN>@github.com/timf34/GemmaAssistantAxis.git
+# SAFETY: if the push fails, a pending 'terminate' is downgraded to 'stop' so nothing is lost.
+if [[ "${SAVE_TO_GIT:-0}" == "1" ]]; then
+  echo "== saving reports to git =="
+  mkdir -p results
+  for k in gemma-3-27b gemma-4-31b; do
+    [[ -d "$EXP_ROOT/$k" ]] || continue
+    mkdir -p "results/$k"
+    cp -f "$EXP_ROOT/$k"/{RESULTS.md,summary.json} "results/$k/" 2>/dev/null || true
+    cp -f "$EXP_ROOT/$k"/*.png "results/$k/" 2>/dev/null || true
+  done
+  cp -f "$EXP_ROOT/COMPARISON.md" "$EXP_ROOT/STATE.md" results/ 2>/dev/null || true
+  git add -f results/ 2>/dev/null || true
+  git -c user.name="gemma-axis-pod" -c user.email="pod@gemma-axis.local" \
+    commit -q -m "results: run finished $(date -u +%FT%TZ)" || echo "  (nothing new to commit)"
+  git pull --no-rebase --no-edit 2>/dev/null || true
+  if git push; then
+    echo "  reports pushed to remote"
+  elif [[ "$RP_ACTION" == "remove" ]]; then
+    echo "  !! git push FAILED — refusing to terminate; downgrading to 'stop' to keep data."
+    RP_ACTION="stop"
+  fi
+fi
+
 if [[ -n "$RP_ACTION" ]]; then
   # Never terminate if a model failed or nothing was uploaded — downgrade to a pause instead.
   if [[ "$RP_ACTION" == "remove" && ${#FAILED[@]} -gt 0 ]]; then
