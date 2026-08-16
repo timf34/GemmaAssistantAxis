@@ -9,6 +9,8 @@ dependencies = [
     "transformers>=4.40",
     "accelerate",
     "huggingface_hub",
+    "hf_transfer",   # LOCAL: RunPod images set HF_HUB_ENABLE_HF_TRANSFER=1; without this every HF download fails
+    "hf_xet",        # LOCAL: same, for HF_HUB_ENABLE_XET
     "vllm",
     "scikit-learn",
     "numpy",

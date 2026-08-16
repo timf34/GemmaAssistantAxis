@@ -30,6 +30,15 @@ if ! command -v uv >/dev/null 2>&1; then
   export PATH="$HOME/.local/bin:$PATH"
 fi
 (cd assistant-axis && uv sync)
+# The host image may enable HF's accelerated downloaders; a clean venv without the matching package
+# makes EVERY huggingface download fail. Install them, and fall back to disabling the flags.
+for pkg_var in "hf_transfer:HF_HUB_ENABLE_HF_TRANSFER" "hf_xet:HF_HUB_ENABLE_XET"; do
+  pkg="${pkg_var%%:*}"; var="${pkg_var##*:}"
+  if [[ "${!var:-0}" == "1" ]] && ! (cd assistant-axis && uv run python -c "import $pkg" 2>/dev/null); then
+    (cd assistant-axis && uv pip install -q "$pkg") || true
+    (cd assistant-axis && uv run python -c "import $pkg" 2>/dev/null) || { echo "  $pkg unavailable -> disabling $var"; export "$var=0"; }
+  fi
+done
 # vLLM needs a driver supporting CUDA >= 12.8 (check nvidia-smi, not nvcc).
 if ! (cd assistant-axis && uv run python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)"); then
   echo "!! torch cannot use this GPU — driver/CUDA mismatch."
