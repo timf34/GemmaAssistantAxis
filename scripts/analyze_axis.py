@@ -201,20 +201,53 @@ def main():
 
     if compare:
         rows = list(summaries)
+        releases = {}
+        if args.release:
+            releases[args.key] = args.release
         for pair in compare:
             k, d = pair.split("=", 1)
+            releases[k] = d
             try:
                 sub = Path(args.outdir or ".") / f"_cmp_{k}"
                 sub.mkdir(parents=True, exist_ok=True)
                 rows.append(analyze_one(d, k, sub, args.roles90))
             except Exception as e:  # noqa: BLE001
                 print(f"comparison model {k} failed: {e}")
-        lines = ["# Assistant Axis across Gemma generations", "",
+
+        # Matched-persona metrics. Each model keeps only the roles it could actually play
+        # (judge filter + min_count), so the models' role sets differ — comparing PC1 alignment
+        # computed over different persona clouds is not apples-to-apples. Recompute every model's
+        # metrics over the INTERSECTION of roles that survived everywhere.
+        matched = {}
+        try:
+            loaded = {k: load_release(d) for k, d in releases.items()}
+            common = set.intersection(*[set(r[2]) for r in loaded.values()]) if loaded else set()
+            if len(common) >= 20:
+                for k, (axis, default, roles) in loaded.items():
+                    sub_roles = {n: v for n, v in roles.items() if n in common}
+                    matched[k] = metrics_at_layer(axis, default, sub_roles, axis.shape[0] // 2)
+                print(f"matched-persona set: {len(common)} roles common to all {len(loaded)} models")
+            else:
+                print(f"matched-persona set too small ({len(common)}) — skipping matched columns")
+        except Exception as e:  # noqa: BLE001
+            print(f"matched-persona comparison failed: {e}")
+
+        lines = ["# Assistant Axis comparison", "",
                  "| model | roles | PC1↔axis cos (mid) | PC1 var | PCs for 70% | default sep (SD) | integrity |",
                  "|---|---|---|---|---|---|---|"]
         for s in rows:
             lines.append(f"| {s['key']} | {s['n_roles']} | {s['pc1_axis_cos']:.3f} | {s['pc1_var']:.1%} "
                          f"| {s['n_pcs_70']} | {s['default_sep_sd']:+.2f} | {s['integrity_cos']:.4f} |")
+        if matched:
+            n_common = len(next(iter(matched.values()))["names"])
+            lines += ["", f"## Matched personas ({n_common} roles playable by every model)", "",
+                      "Each model's own axis, but metrics recomputed over the identical persona set — "
+                      "this is the apples-to-apples comparison.", "",
+                      "| model | PC1↔axis cos (mid) | PC1 var | PCs for 70% | default sep (SD) |",
+                      "|---|---|---|---|---|"]
+            for k, m in matched.items():
+                lines.append(f"| {k} | {m['pc1_axis_cos']:.3f} | {m['pc1_var']:.1%} "
+                             f"| {m['n_pcs_70']} | {m['default_sep_sd']:+.2f} |")
         lines += ["", "Per-model metrics only; activation spaces differ across models, so raw directions are never compared."]
         out = Path(args.outdir or ".").parent / "COMPARISON.md"
         out.write_text("\n".join(lines))
