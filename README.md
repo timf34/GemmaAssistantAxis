@@ -26,10 +26,13 @@ Useful overrides:
 | `MIN_COUNT` | 25 | min fully-role-playing responses per role vector (scale with QUESTION_COUNT) |
 | `MODELS_ONLY` | – | `gemma-3-27b` or `gemma-4-31b` to run just one |
 | `DOCTOR_ONLY` | 0 | run the cheap environment checks (~3 min) and exit — validate a fresh pod before committing to a night |
-| `DOCTOR_ONLY` | 0 | run the cheap environment checks (~3 min) and exit — validate a fresh pod before committing to a night |
 | `SKIP_PREFLIGHT` | 0 | resume after a crash |
 | `SHUTDOWN` | – | `stop` pauses the pod when done (billing stops); `terminate` destroys it (auto-downgraded to `stop` if anything failed) |
 | `SAVE_TO_GIT` | 0 | push reports/plots (not the .pt vectors) to this repo before shutdown; needs a PAT in the git remote |
+
+## Before you walk away
+
+`bash run_on_pod.sh` runs `scripts/doctor.sh` before any GPU work: credentials + a live OpenRouter call, HF downloader flags (auto-installs `hf_transfer`/`hf_xet` or disables them), HF auth, config + tokenizer load for both models, chat-template persona delivery, GPU, and disk. It prints **`ALL ENVIRONMENT CHECKS PASSED — SAFE TO LEAVE IT RUNNING`** when everything is green; until you see that line, stay at the terminal. `DOCTOR_ONLY=1 bash run_on_pod.sh` runs just the checks (~3 min) on a fresh pod.
 
 ## What it produces
 
@@ -52,6 +55,6 @@ Plus `RESULTS.md` (PC1↔axis cosine, variance explained, default separation, ra
 ## Layout
 
 - `run_on_pod.sh` — the one-shot entry point
-- `scripts/` — `preflight.sh`, `supervisor.sh` (retry loop), `run_model.sh` (5-step pipeline + packaging), `package_release.py`, `analyze_axis.py`, `upload_results.py`
+- `scripts/` — `doctor.sh` (fail-fast env checks), `preflight.sh`, `supervisor.sh` (retry loop), `run_model.sh` (5-step pipeline + packaging), `package_release.py`, `analyze_axis.py`, `upload_results.py`
 - `assistant-axis/` — vendored pipeline ([safety-research/assistant-axis](https://github.com/safety-research/assistant-axis); provenance in `assistant-axis/UPSTREAM.md`, paper in `assistant-axis/og-paper.md`)
 - `roles_90.json` — 90-persona subset shared with the SPP track
