@@ -13,6 +13,7 @@
 #
 #   QUESTION_COUNT=60 bash run_on_pod.sh          # half scale (~2x faster) if the night is short
 #   MODELS_ONLY=gemma-3-27b bash run_on_pod.sh    # one model only
+#   DOCTOR_ONLY=1 bash run_on_pod.sh              # validate a fresh pod in ~3 min, then exit
 #   SKIP_PREFLIGHT=1 bash run_on_pod.sh           # resume after a crash (preflight already passed)
 #   SHUTDOWN=stop bash run_on_pod.sh              # pause the pod when done (stops GPU billing)
 set -euo pipefail
@@ -24,38 +25,34 @@ export BATCH_SIZE="${BATCH_SIZE:-16}"
 export EXP_ROOT="${EXP_ROOT:-/workspace/exp}"
 export PRUNE_ACTIVATIONS="${PRUNE_ACTIVATIONS:-1}"   # delete raw activations after upload (~220GB/model)
 
-echo "== [1/5] dependencies =="
+echo "== [1/6] dependencies =="
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
   export PATH="$HOME/.local/bin:$PATH"
 fi
 (cd assistant-axis && uv sync)
-# The host image may enable HF's accelerated downloaders; a clean venv without the matching package
-# makes EVERY huggingface download fail. Install them, and fall back to disabling the flags.
-for pkg_var in "hf_transfer:HF_HUB_ENABLE_HF_TRANSFER" "hf_xet:HF_HUB_ENABLE_XET"; do
-  pkg="${pkg_var%%:*}"; var="${pkg_var##*:}"
-  if [[ "${!var:-0}" == "1" ]] && ! (cd assistant-axis && uv run python -c "import $pkg" 2>/dev/null); then
-    (cd assistant-axis && uv pip install -q "$pkg") || true
-    (cd assistant-axis && uv run python -c "import $pkg" 2>/dev/null) || { echo "  $pkg unavailable -> disabling $var"; export "$var=0"; }
-  fi
-done
-# vLLM needs a driver supporting CUDA >= 12.8 (check nvidia-smi, not nvcc).
-if ! (cd assistant-axis && uv run python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)"); then
-  echo "!! torch cannot use this GPU — driver/CUDA mismatch."
-  nvidia-smi | grep -oE 'CUDA Version: [0-9.]+' || true
+echo "  deps installed"
+
+echo "== [2/6] doctor: fail-fast environment checks =="
+# Every cheap check lives in scripts/doctor.sh so a broken pod is caught in the first minute,
+# not overnight. Prints an explicit "SAFE TO LEAVE IT RUNNING" banner when everything passes.
+if ! bash scripts/doctor.sh; then
+  echo "!! environment checks failed — aborting before any GPU work. Fix the [FAIL] lines above."
   exit 1
 fi
+[[ "${DOCTOR_ONLY:-0}" == "1" ]] && { echo "DOCTOR_ONLY=1 -> stopping after checks."; exit 0; }
+
 command -v tmux >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq tmux; } || true
 echo "  deps OK"
 
-echo "== [2/5] preflight =="
+echo "== [3/6] preflight =="
 if [[ "${SKIP_PREFLIGHT:-0}" != "1" ]]; then
   bash scripts/preflight.sh
 else
   echo "  skipped (SKIP_PREFLIGHT=1)"
 fi
 
-echo "== [3/5] launching both models in parallel (one per GPU) =="
+echo "== [4/6] launching both models in parallel (one per GPU) =="
 mkdir -p "$EXP_ROOT"
 declare -a PIDS=() KEYS=()
 launch() {  # launch <hf_id> <gpu> <key>
@@ -67,13 +64,13 @@ launch() {  # launch <hf_id> <gpu> <key>
 launch google/gemma-3-27b-it 0 gemma-3-27b
 launch google/gemma-4-31B-it 1 gemma-4-31b
 
-echo "== [4/5] waiting (tail $EXP_ROOT/STATE.md for progress) =="
+echo "== [5/6] waiting (tail $EXP_ROOT/STATE.md for progress) =="
 FAILED=()
 for i in "${!PIDS[@]}"; do
   if wait "${PIDS[$i]}"; then echo "  ${KEYS[$i]}: OK"; else echo "  ${KEYS[$i]}: FAILED"; FAILED+=("${KEYS[$i]}"); fi
 done
 
-echo "== [5/5] cross-generation comparison =="
+echo "== [6/6] cross-generation comparison =="
 # Includes the paper's published Gemma 2 27B vectors, so the table spans three generations.
 CMP=()
 for k in gemma-3-27b gemma-4-31b; do

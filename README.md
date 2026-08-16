@@ -25,6 +25,7 @@ Useful overrides:
 | `QUESTION_COUNT` | 120 | 600 responses/role. Use 60 for a short night, 240 for full paper scale |
 | `MIN_COUNT` | 25 | min fully-role-playing responses per role vector (scale with QUESTION_COUNT) |
 | `MODELS_ONLY` | – | `gemma-3-27b` or `gemma-4-31b` to run just one |
+| `DOCTOR_ONLY` | 0 | run the cheap environment checks (~3 min) and exit — validate a fresh pod before committing to a night |
 | `SKIP_PREFLIGHT` | 0 | resume after a crash |
 | `SHUTDOWN` | – | `stop` pauses the pod when done (billing stops); `terminate` destroys it (auto-downgraded to `stop` if anything failed) |
 | `SAVE_TO_GIT` | 0 | push reports/plots (not the .pt vectors) to this repo before shutdown; needs a PAT in the git remote |
