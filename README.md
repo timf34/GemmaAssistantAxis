@@ -30,6 +30,17 @@ Useful overrides:
 | `SHUTDOWN` | – | `stop` pauses the pod when done (billing stops); `terminate` destroys it (auto-downgraded to `stop` if anything failed) |
 | `SAVE_TO_GIT` | 0 | push reports/plots (not the .pt vectors) to this repo before shutdown; needs a PAT in the git remote |
 
+## Gemma 4
+
+`gemma-4-31B-it` needs transformers 5.x (its config declares `model_type "gemma4"`); a first attempt died on 4.57.5. Unblock and **prove** it before spending GPU hours:
+
+```bash
+bash scripts/upgrade_for_gemma4.sh          # upgrades, then loads config+tokenizer AND serves it via vLLM
+MODELS_ONLY=gemma-4-31b bash run_on_pod.sh  # only if the above prints GEMMA 4 UNBLOCKED
+```
+
+**GPU:** 30.7B dense ≈ 62GB in bf16. A single **H200 141GB** is the comfortable, fastest choice; an H100 80GB works with less KV-cache headroom; an A100 80GB fits but runs roughly 2–3× slower (Ampere, no FP8) and is likelier to carry a driver too old for a current vLLM.
+
 ## Before you walk away
 
 `bash run_on_pod.sh` runs `scripts/doctor.sh` before any GPU work: credentials + a live OpenRouter call, HF downloader flags (auto-installs `hf_transfer`/`hf_xet` or disables them), HF auth, config + tokenizer load for both models, chat-template persona delivery, GPU, and disk. It prints **`ALL ENVIRONMENT CHECKS PASSED — SAFE TO LEAVE IT RUNNING`** when everything is green; until you see that line, stay at the terminal. `DOCTOR_ONLY=1 bash run_on_pod.sh` runs just the checks (~3 min) on a fresh pod.

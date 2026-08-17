@@ -14,7 +14,13 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DOCTOR_MODELS="${DOCTOR_MODELS:-google/gemma-3-27b-it google/gemma-4-31B-it}"
+# MODELS_ONLY=gemma-4-31b narrows the checks to that model (used when unblocking gemma-4 alone).
+case "${MODELS_ONLY:-}" in
+  gemma-3-27b) DEFAULT_DOCTOR_MODELS="google/gemma-3-27b-it" ;;
+  gemma-4-31b) DEFAULT_DOCTOR_MODELS="google/gemma-4-31B-it" ;;
+  *) DEFAULT_DOCTOR_MODELS="google/gemma-3-27b-it google/gemma-4-31B-it" ;;
+esac
+DOCTOR_MODELS="${DOCTOR_MODELS:-$DEFAULT_DOCTOR_MODELS}"
 MIN_DISK_GB="${MIN_DISK_GB:-600}"
 FAILED=0
 ok()   { echo "  [ok]   $*"; }
