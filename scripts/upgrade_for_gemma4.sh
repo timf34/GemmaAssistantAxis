@@ -14,6 +14,24 @@ AXIS_DIR="$(pwd)/assistant-axis"
 MODEL="${GEMMA4_MODEL:-google/gemma-4-31B-it}"
 
 echo "== gemma-4 unblock: $MODEL =="
+# Check the HOST driver before touching a single package. vLLM >= 0.19 wheels are built for CUDA
+# 12.8/12.9/13.0 only; on a 12.4 driver the new torch cannot import (libcusparseLt.so.0). That is a
+# host property — no pip install fixes it — so refuse immediately and say which pod to rent.
+DRV_CUDA=$(nvidia-smi 2>/dev/null | grep -oE 'CUDA Version: [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+' | head -1)
+MIN_CUDA="${MIN_CUDA:-12.8}"
+if [[ -z "$DRV_CUDA" ]]; then
+  echo "!! nvidia-smi shows no driver CUDA version — is this a GPU pod?"; exit 1
+fi
+if [[ "$(printf '%s\n%s\n' "$MIN_CUDA" "$DRV_CUDA" | sort -V | head -1)" != "$MIN_CUDA" ]]; then
+  echo "=========================================================================="
+  echo " THIS POD CANNOT RUN GEMMA 4: driver CUDA $DRV_CUDA, need >= $MIN_CUDA"
+  echo " The driver is on the host — nothing installed inside the pod changes it."
+  echo " Stop this pod and rent one whose template says CUDA 12.8+ (e.g. RunPod"
+  echo " 'PyTorch 2.x + CUDA 12.8' or newer). Verify with: nvidia-smi | grep 'CUDA Version'"
+  echo "=========================================================================="
+  exit 1
+fi
+echo "  driver CUDA $DRV_CUDA >= $MIN_CUDA — ok"
 # Load credentials WITHOUT sourcing common.sh: common.sh calls `exit 1` when .env is missing, and
 # because `source` runs in this shell that would kill this script — silently, if stderr were hidden.
 # (That exact combination once made this script return instantly with no output at all.)
