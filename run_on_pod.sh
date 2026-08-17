@@ -25,6 +25,48 @@ export BATCH_SIZE="${BATCH_SIZE:-16}"
 export EXP_ROOT="${EXP_ROOT:-/workspace/exp}"
 export PRUNE_ACTIVATIONS="${PRUNE_ACTIVATIONS:-0}"   # keep raw activations (uploaded to a separate public dataset); 1 = delete after upload
 
+# STEP 0 — before installing anything: is this host's driver usable at all?
+# The driver is a HOST property (RunPod H200 hosts have shipped driver 550 = CUDA 12.4 across three
+# templates, including the cu1281 image — the template's CUDA version is the container toolkit and
+# cannot raise the driver). vLLM >= 0.19 wheels need CUDA 12.8+. Fail here, in one second, before a
+# multi-minute uv sync — or enable NVIDIA forward-compat if the host supports it.
+echo "== [0/6] host driver check (before anything else) =="
+DRV_CUDA=$(nvidia-smi 2>/dev/null | grep -oE 'CUDA Version: [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+' | head -1)
+MIN_CUDA="${MIN_CUDA:-12.8}"
+COMPAT_VER="${COMPAT_VER:-12-8}"
+COMPAT_DIR="/usr/local/cuda-${COMPAT_VER/-/.}/compat"
+if [[ -z "$DRV_CUDA" ]]; then
+  echo "!! nvidia-smi shows no driver CUDA version — is this a GPU pod?"; exit 1
+fi
+if [[ "$(printf '%s\n%s\n' "$MIN_CUDA" "$DRV_CUDA" | sort -V | head -1)" != "$MIN_CUDA" ]]; then
+  echo "  driver CUDA $DRV_CUDA < $MIN_CUDA (driver $(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1))"
+  echo "  -> attempting NVIDIA forward-compatibility (cuda-compat-$COMPAT_VER, supported on datacenter GPUs)"
+  if [[ ! -d "$COMPAT_DIR" ]]; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq >/dev/null 2>&1 || true
+    if ! apt-get install -y -qq "cuda-compat-$COMPAT_VER" >/dev/null 2>&1; then
+      . /etc/os-release; distro="${ID}${VERSION_ID//./}"
+      curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/${distro}/x86_64/cuda-keyring_1.1-1_all.deb" -o /tmp/cuda-keyring.deb 2>/dev/null \
+        && dpkg -i /tmp/cuda-keyring.deb >/dev/null 2>&1 && apt-get update -qq >/dev/null 2>&1 \
+        && apt-get install -y -qq "cuda-compat-$COMPAT_VER" >/dev/null 2>&1 || true
+    fi
+  fi
+  if [[ ! -d "$COMPAT_DIR" ]]; then
+    echo "=========================================================================="
+    echo " UNUSABLE HOST: driver CUDA $DRV_CUDA < $MIN_CUDA and cuda-compat-$COMPAT_VER not installable."
+    echo " Nothing inside the pod can raise the driver. Rent a host with driver >= 570"
+    echo " (ask RunPod which region/template) — do NOT judge by the template's CUDA version."
+    echo "=========================================================================="
+    exit 1
+  fi
+  export LD_LIBRARY_PATH="$COMPAT_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  mkdir -p "$EXP_ROOT"
+  echo "export LD_LIBRARY_PATH=\"$COMPAT_DIR\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"" > "$EXP_ROOT/.cuda_compat.env"
+  echo "  forward-compat libs installed at $COMPAT_DIR — will be verified against torch after deps install"
+else
+  echo "  driver CUDA $DRV_CUDA >= $MIN_CUDA — ok"
+fi
+
 echo "== [1/6] dependencies =="
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
