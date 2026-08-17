@@ -57,12 +57,21 @@ run_step analyze 2h uv run --project "$AXIS_DIR" python "$SCRIPTS_DIR/analyze_ax
   --release "$OUT/release/$KEY" --key "$KEY" --outdir "$OUT" --roles90 "$REPO_DIR/roles_90.json"
 
 # 8. Backup off the ephemeral pod (release + reports + scores; NOT raw activations/responses)
-run_step upload 2h uv run --project "$AXIS_DIR" python "$SCRIPTS_DIR/upload_results.py" \
-  --exp "$OUT" --key "$KEY" --repo "$HF_RESULTS_REPO"
+# NON-FATAL: a flaky HF upload once failed the chain and burned 7 of 8 supervisor attempts
+# re-running already-complete work. The science is done by this point.
+UPLOAD_OK=0
+for try in 1 2 3; do
+  if timeout 2h uv run --project "$AXIS_DIR" python "$SCRIPTS_DIR/upload_results.py" \
+       --exp "$OUT" --key "$KEY" --repo "$HF_RESULTS_REPO" >> "$OUT/logs/upload.log" 2>&1; then
+    UPLOAD_OK=1; state "[$KEY] upload: done (attempt $try)"; break
+  fi
+  state "[$KEY] upload: attempt $try failed"; sleep 60
+done
+[[ "$UPLOAD_OK" == "1" ]] || state "[$KEY] !! UPLOAD FAILED — results are ONLY on this pod's disk. Do not terminate before copying them off."
 
 # 9. Prune raw activations (~220GB/model at 275 roles) now that vectors are saved and uploaded.
 #    Re-running step 4 with a different --min_count after this requires re-extracting activations.
-if [[ "$PRUNE_ACTIVATIONS" == "1" && -d "$OUT/release/$KEY" ]]; then
+if [[ "$PRUNE_ACTIVATIONS" == "1" && "$UPLOAD_OK" == "1" && -d "$OUT/release/$KEY" ]]; then
   state "[$KEY] pruning activations"
   rm -rf "$OUT/activations"
 fi
