@@ -68,14 +68,32 @@ assert c['total_layers'] > 20, 'layer count looks wrong (text_config issue?)'"
     --output_dir "$out/responses"
   CUDA_VISIBLE_DEVICES=$gpu uv run --project "$AXIS_DIR" python "$AXIS_DIR/pipeline/2_activations.py" \
     --model "$m" --responses_dir "$out/responses" --output_dir "$out/activations" --batch_size 4
+  # Pass --roles_dir explicitly, exactly as run_model.sh does. Without it the judge falls back to
+  # its default "../data/roles/instructions" -- a RELATIVE path resolved against the CWD, which
+  # run_on_pod.sh sets to the repo root -- so it looked in /workspace/data/roles/instructions,
+  # found nothing, logged "Skipping <role>: no role file found" for every role, wrote no scores,
+  # and the sanity read below died on an empty list. The real run never hit this because it
+  # passes the flag; only preflight was silently judging nothing.
   uv run --project "$AXIS_DIR" python "$AXIS_DIR/pipeline/3_judge.py" \
-    --responses_dir "$out/responses" --output_dir "$out/scores" --judge_model "$JUDGE_MODEL"
+    --responses_dir "$out/responses" --output_dir "$out/scores" --judge_model "$JUDGE_MODEL" \
+    --roles_dir "$AXIS_DIR/data/roles/instructions"
   uv run --project "$AXIS_DIR" python - <<EOF
-import torch, json, pathlib
-acts = torch.load(sorted(pathlib.Path('$out/activations').glob('*.pt'))[0], weights_only=False)
+import sys, torch, json, pathlib
+act_files = sorted(pathlib.Path('$out/activations').glob('*.pt'))
+if not act_files:
+    sys.exit("PREFLIGHT FAIL: activation extraction wrote no .pt files to $out/activations")
+acts = torch.load(act_files[0], weights_only=False)
 first = next(iter(acts.values())) if isinstance(acts, dict) else acts[0]
 print('activation entry shape:', tuple(first.shape))
-scores = json.load(open(sorted(pathlib.Path('$out/scores').glob('*.json'))[0]))
+# Name the failure instead of dying on an IndexError. An empty scores dir means the judge
+# skipped or scored nothing -- that must never pass a preflight that authorises an overnight run.
+score_files = sorted(pathlib.Path('$out/scores').glob('*.json'))
+if not score_files:
+    sys.exit("PREFLIGHT FAIL: judge wrote no score files to $out/scores (check the 'Skipping ...' "
+             "lines above -- usually a wrong --roles_dir or a judge API failure)")
+scores = json.load(open(score_files[0]))
+if not scores:
+    sys.exit(f"PREFLIGHT FAIL: {score_files[0].name} exists but is empty -- judge scored nothing")
 print('sample scores:', list(scores.items())[:3] if isinstance(scores, dict) else scores[:3])
 EOF
   state "preflight OK: $m (GPU $gpu)"

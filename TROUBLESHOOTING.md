@@ -307,6 +307,28 @@ There have now been three independent hardcodings of `12-8` in this repo; each o
 
 ---
 
+## 11. Preflight: `IndexError: list index out of range` after "Skipping <role>: no role file found"
+
+**Symptom.** Activation extraction succeeds (`activation entry shape: (60, 5376)`), then the judge
+logs `Skipping default: no role file found` / `Skipping pirate: no role file found`, writes no
+scores, and preflight's sanity read dies with a bare `IndexError`.
+
+**Cause.** Preflight invoked `3_judge.py` without `--roles_dir`. The judge's default is
+`../data/roles/instructions` — a **relative** path resolved against the CWD, which `run_on_pod.sh`
+sets to the repo root — so it looked in `/workspace/data/roles/instructions` and found nothing.
+Preflight-only: the real run (`run_model.sh`) always passes the flag.
+
+**Fix.** Pass `--roles_dir "$AXIS_DIR/data/roles/instructions"` in preflight, exactly as
+`run_model.sh` does. The sanity read now names its failure ("judge wrote no score files") instead
+of an `IndexError`, so a silently-empty judge can never pass the gate again.
+
+**Sanity values once it works.** Pirate responses score **3/3** ("fully playing the role") across
+all 15 preflight samples — that is correct, not a stuck judge: 3 is the top of the 0–3 rubric and
+Gemma 4 inhabits personas strongly. `default` is skipped with "no eval_prompt in role file" by
+design; it is the assistant baseline, not a persona.
+
+---
+
 ## Self-shutdown (`SHUTDOWN=stop`) silently does nothing
 
 `run_on_pod.sh` requires `RUNPOD_POD_ID` **and** an authenticated `runpodctl`. On this pod neither
