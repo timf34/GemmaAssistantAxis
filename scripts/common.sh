@@ -8,8 +8,9 @@ QUESTION_COUNT="${QUESTION_COUNT:-120}"   # 120 -> 600 responses/role (~overnigh
 MIN_COUNT="${MIN_COUNT:-25}"              # min fully-role-playing responses for a role vector (paper: 50 at 1200/role)
 BATCH_SIZE="${BATCH_SIZE:-16}"            # activation extraction batch size (H200: 16 is conservative for 27-31B)
 JUDGE_MODEL="${JUDGE_MODEL:-openai/gpt-4.1-mini}"   # OpenRouter model id — NOT the bare openai name
-JUDGE_BATCH="${JUDGE_BATCH:-50}"          # concurrent judge requests
-JUDGE_RPS="${JUDGE_RPS:-60}"              # judge rate limit (OpenRouter-friendly; script default is 100)
+JUDGE_BATCH="${JUDGE_BATCH:-200}"         # concurrent judge requests (the judge is the long pole:
+                                          # ~165k calls/model, and every minute it runs is billed GPU-idle)
+JUDGE_RPS="${JUDGE_RPS:-250}"             # judge rate limit; lower it if OpenRouter returns 429s
 PRUNE_ACTIVATIONS="${PRUNE_ACTIVATIONS:-1}"  # delete raw activations after upload — ~220GB/model at 275 roles
 HF_RESULTS_REPO="${HF_RESULTS_REPO:-timf34/gemma-assistant-axis-results}"
 
