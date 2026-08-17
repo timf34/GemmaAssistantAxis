@@ -10,9 +10,31 @@
 # Then:   MODELS_ONLY=gemma-4-31b bash run_on_pod.sh
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-source scripts/common.sh 2>/dev/null || true
 AXIS_DIR="$(pwd)/assistant-axis"
 MODEL="${GEMMA4_MODEL:-google/gemma-4-31B-it}"
+
+echo "== gemma-4 unblock: $MODEL =="
+# Load credentials WITHOUT sourcing common.sh: common.sh calls `exit 1` when .env is missing, and
+# because `source` runs in this shell that would kill this script — silently, if stderr were hidden.
+# (That exact combination once made this script return instantly with no output at all.)
+for f in .env assistant-axis/.env; do
+  [[ -f "$f" ]] && { set -a; source "$f"; set +a; echo "  loaded $f"; }
+done
+: "${HF_TOKEN:=${HUGGING_FACE_HUB_TOKEN:-}}"
+export HF_TOKEN
+if [[ -z "${HF_TOKEN:-}" ]]; then
+  echo "!! no HF_TOKEN found in .env — gemma-4 is licence-gated and the download will 403."
+  echo "   Put HF_TOKEN=hf_... in assistant-axis/.env (see .env.example) and re-run."
+  exit 1
+fi
+if ! command -v uv >/dev/null 2>&1; then
+  echo "!! uv not found — run 'bash run_on_pod.sh' once (or install uv) before this script."
+  exit 1
+fi
+if [[ ! -d "$AXIS_DIR/.venv" ]]; then
+  echo "  no venv yet -> running uv sync first (a few minutes)"
+  (cd "$AXIS_DIR" && uv sync) || { echo "!! uv sync failed"; exit 1; }
+fi
 
 echo "== current versions =="
 (cd "$AXIS_DIR" && uv run python -c "
