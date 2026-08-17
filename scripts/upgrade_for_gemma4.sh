@@ -23,13 +23,29 @@ if [[ -z "$DRV_CUDA" ]]; then
   echo "!! nvidia-smi shows no driver CUDA version — is this a GPU pod?"; exit 1
 fi
 if [[ "$(printf '%s\n%s\n' "$MIN_CUDA" "$DRV_CUDA" | sort -V | head -1)" != "$MIN_CUDA" ]]; then
-  echo "=========================================================================="
-  echo " THIS POD CANNOT RUN GEMMA 4: driver CUDA $DRV_CUDA, need >= $MIN_CUDA"
-  echo " The driver is on the host — nothing installed inside the pod changes it."
-  echo " Stop this pod and rent one whose template says CUDA 12.8+ (e.g. RunPod"
-  echo " 'PyTorch 2.x + CUDA 12.8' or newer). Verify with: nvidia-smi | grep 'CUDA Version'"
-  echo "=========================================================================="
-  exit 1
+  echo "  driver CUDA $DRV_CUDA < $MIN_CUDA — will rely on NVIDIA forward-compat (cuda-compat-${COMPAT_VER:-12-8})."
+  echo "  The doctor (run_on_pod.sh) installs and verifies it; this script only checks the package installs."
+  COMPAT_VER="${COMPAT_VER:-12-8}"; COMPAT_DIR="/usr/local/cuda-${COMPAT_VER/-/.}/compat"
+  if [[ ! -d "$COMPAT_DIR" ]]; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq >/dev/null 2>&1 || true
+    if ! apt-get install -y -qq "cuda-compat-$COMPAT_VER" >/dev/null 2>&1; then
+      . /etc/os-release; distro="${ID}${VERSION_ID//./}"
+      curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/${distro}/x86_64/cuda-keyring_1.1-1_all.deb" -o /tmp/cuda-keyring.deb 2>/dev/null \
+        && dpkg -i /tmp/cuda-keyring.deb >/dev/null 2>&1 && apt-get update -qq >/dev/null 2>&1 \
+        && apt-get install -y -qq "cuda-compat-$COMPAT_VER" >/dev/null 2>&1 || true
+    fi
+  fi
+  if [[ -d "$COMPAT_DIR" ]]; then
+    export LD_LIBRARY_PATH="$COMPAT_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    echo "  forward-compat libs present at $COMPAT_DIR (LD_LIBRARY_PATH set for this script)"
+  else
+    echo "=========================================================================="
+    echo " driver CUDA $DRV_CUDA < $MIN_CUDA and cuda-compat-$COMPAT_VER could not be installed."
+    echo " Need a host with driver >= 570. The template's CUDA version does NOT change the driver."
+    echo "=========================================================================="
+    exit 1
+  fi
 fi
 echo "  driver CUDA $DRV_CUDA >= $MIN_CUDA — ok"
 # Load credentials WITHOUT sourcing common.sh: common.sh calls `exit 1` when .env is missing, and

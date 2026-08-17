@@ -32,14 +32,16 @@ Useful overrides:
 
 ## Gemma 4
 
-**Pod driver requirement: CUDA >= 12.8.** Gemma 4 needs vLLM >= 0.19 / transformers >= 5.5, and vLLM 0.19
-wheels exist only for CUDA 12.8/12.9/13.0. On a pod whose `nvidia-smi` shows `CUDA Version: 12.4` torch
-cannot even import (`libcusparseLt.so.0`); the driver is on the host and cannot be changed from inside the
-container. When renting, pick a template that advertises CUDA 12.8+ (RunPod: the "PyTorch 2.x + CUDA 12.8"
-or newer images). The doctor checks this first and refuses to continue on an old driver.
+**Driver requirement: CUDA >= 12.8, and the DRIVER is a host property.** Gemma 4 needs vLLM >= 0.19 /
+transformers >= 5.5, whose wheels are built for CUDA 12.8+. RunPod's H200 hosts have shipped **driver 550
+(CUDA 12.4)** across three different templates — including the `cu1281` one — because the template's CUDA
+version is the *container toolkit* and cannot raise the *host driver*. Check with `nvidia-smi | grep "CUDA Version"`.
 
-
-`gemma-4-31B-it` needs transformers 5.x (its config declares `model_type "gemma4"`); a first attempt died on 4.57.5. Unblock and **prove** it before spending GPU hours:
+On an old driver the doctor now automatically tries **NVIDIA forward-compatibility** (`cuda-compat-12-8`,
+newer user-space `libcuda` under `/usr/local/cuda-12.8/compat`; supported on datacenter GPUs like H100/H200/A100)
+and verifies torch can see the GPU through it. If that works, the run proceeds on the same pod. If it does
+not, the only fix is a host with driver >= 570 — ask RunPod which region/template has it — or an older
+vllm/torch stack, which cannot load Gemma 4.
 
 ```bash
 bash scripts/upgrade_for_gemma4.sh          # upgrades, then loads config+tokenizer AND serves it via vLLM

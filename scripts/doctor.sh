@@ -27,24 +27,57 @@ ok()   { echo "  [ok]   $*"; }
 fail() { echo "  [FAIL] $*"; FAILED=$((FAILED+1)); }
 
 echo "== doctor: driver / CUDA (checked FIRST — nothing else matters if torch cannot load) =="
-# vLLM >= 0.19 wheels are built for CUDA 12.8/12.9/13.0 (no 12.4 build exists), and torch's
-# libcusparseLt import dies on an older driver. The driver lives on the HOST — it cannot be fixed
-# from inside the pod. Catch it here, name the pod requirement, and stop before anything else runs.
+# vLLM >= 0.19 wheels are built for CUDA 12.8/12.9/13.0. The DRIVER is a host property (RunPod's H200
+# hosts have shipped driver 550 = CUDA 12.4 across three separate templates — the template's CUDA
+# version is the container toolkit and cannot raise the driver). Two ways to proceed on an old driver:
+#   1. NVIDIA forward-compat: cuda-compat-12-8 installs newer user-space libcuda under
+#      /usr/local/cuda-12.8/compat; datacenter GPUs (H100/H200/A100) support this. Try it.
+#   2. If that fails: a host with a newer driver (ask RunPod which regions run 570+), or pin an
+#      older vllm/torch (which cannot load gemma-4).
 DRV_CUDA=$(nvidia-smi 2>/dev/null | grep -oE 'CUDA Version: [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+' | head -1)
 MIN_CUDA="${MIN_CUDA:-12.8}"
+COMPAT_VER="${COMPAT_VER:-12-8}"
+torch_ok() { (cd "$AXIS_DIR" && uv run python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)" >/dev/null 2>&1); }
 if [[ -z "$DRV_CUDA" ]]; then
   fail "nvidia-smi reports no driver CUDA version"
 elif [[ "$(printf '%s\n%s\n' "$MIN_CUDA" "$DRV_CUDA" | sort -V | head -1)" != "$MIN_CUDA" ]]; then
-  fail "driver supports CUDA $DRV_CUDA but this stack (vllm>=0.19, transformers>=5.5) needs >= $MIN_CUDA."
-  echo "         This is a HOST driver limit — it cannot be fixed inside the pod."
-  echo "         Rent a pod whose template shows CUDA >= $MIN_CUDA (e.g. a 'CUDA 12.8'/'12.9'/'13.x' PyTorch image),"
-  echo "         or set MIN_CUDA lower ONLY if you have pinned an older vllm/torch that matches this driver."
-  echo
-  echo "=========================================================="
-  echo " DRIVER TOO OLD — STOPPING BEFORE ANY OTHER CHECK        "
-  echo "=========================================================="
-  state "doctor: driver CUDA $DRV_CUDA < $MIN_CUDA — pod unusable for this stack"
-  exit 1
+  echo "  driver supports CUDA $DRV_CUDA < $MIN_CUDA — trying NVIDIA forward-compatibility (cuda-compat-$COMPAT_VER)"
+  COMPAT_DIR="/usr/local/cuda-${COMPAT_VER/-/.}/compat"
+  if [[ ! -d "$COMPAT_DIR" ]]; then
+    ( export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq >/dev/null 2>&1 || true
+      # NVIDIA apt repo may not be configured on the image; add it if the package is unknown.
+      if ! apt-get install -y -qq "cuda-compat-$COMPAT_VER" >/dev/null 2>&1; then
+        . /etc/os-release; distro="${ID}${VERSION_ID//./}"
+        curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/${distro}/x86_64/cuda-keyring_1.1-1_all.deb" -o /tmp/cuda-keyring.deb 2>/dev/null \
+          && dpkg -i /tmp/cuda-keyring.deb >/dev/null 2>&1 && apt-get update -qq >/dev/null 2>&1 \
+          && apt-get install -y -qq "cuda-compat-$COMPAT_VER" >/dev/null 2>&1 || true
+      fi
+    ) || true
+  fi
+  if [[ -d "$COMPAT_DIR" ]]; then
+    export LD_LIBRARY_PATH="$COMPAT_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    if torch_ok; then
+      ok "forward-compat active: $COMPAT_DIR on driver CUDA $DRV_CUDA — torch sees the GPU"
+      # Persist for every later step in this run (run_model.sh, supervisor.sh source common.sh).
+      echo "export LD_LIBRARY_PATH=\"$COMPAT_DIR\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"" > "$EXP_ROOT/.cuda_compat.env"
+      state "doctor: cuda forward-compat enabled ($COMPAT_DIR)"
+    else
+      fail "installed $COMPAT_DIR but torch still cannot use the GPU on driver $DRV_CUDA"
+      echo "         This driver branch may not support forward-compat to $MIN_CUDA. Options: a host with"
+      echo "         driver >= 570 (ask RunPod which region/template), or MIN_CUDA=12.4 with an older stack"
+      echo "         (cannot load gemma-4)."
+      state "doctor: driver CUDA $DRV_CUDA, forward-compat failed"
+      echo; echo "=========================================================="; echo " DRIVER TOO OLD — STOPPING BEFORE ANY OTHER CHECK "; echo "=========================================================="
+      exit 1
+    fi
+  else
+    fail "driver CUDA $DRV_CUDA < $MIN_CUDA and cuda-compat-$COMPAT_VER could not be installed"
+    echo "         Need a host with driver >= 570 (CUDA 12.8+). The template's CUDA version does NOT change the driver."
+    state "doctor: driver CUDA $DRV_CUDA, no compat package"
+    echo; echo "=========================================================="; echo " DRIVER TOO OLD — STOPPING BEFORE ANY OTHER CHECK "; echo "=========================================================="
+    exit 1
+  fi
 else
   ok "driver supports CUDA $DRV_CUDA (>= $MIN_CUDA)"
 fi
