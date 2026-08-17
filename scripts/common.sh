@@ -11,7 +11,11 @@ JUDGE_MODEL="${JUDGE_MODEL:-openai/gpt-4.1-mini}"   # OpenRouter model id — NO
 JUDGE_BATCH="${JUDGE_BATCH:-200}"         # concurrent judge requests (the judge is the long pole:
                                           # ~165k calls/model, and every minute it runs is billed GPU-idle)
 JUDGE_RPS="${JUDGE_RPS:-250}"             # judge rate limit; lower it if OpenRouter returns 429s
-PRUNE_ACTIVATIONS="${PRUNE_ACTIVATIONS:-1}"  # delete raw activations after upload — ~220GB/model at 275 roles
+PRUNE_ACTIVATIONS="${PRUNE_ACTIVATIONS:-0}"  # default OFF: activations are uploaded (below) and only
+                                          # deleted if you explicitly ask. A prune-by-default once destroyed
+                                          # a run's activations minutes before the user tried to save them.
+ACTIVATIONS_REPO="${ACTIVATIONS_REPO:-timf34/gemma-assistant-axis-activations}"  # separate public dataset: 57-220GB/model
+UPLOAD_ACTIVATIONS="${UPLOAD_ACTIVATIONS:-1}"  # push raw activations there after vectors are done
 HF_RESULTS_REPO="${HF_RESULTS_REPO:-timf34/gemma-assistant-axis-results}"
 
 # Credentials. Accept .env in either the repo root or assistant-axis/ (the pipeline's own

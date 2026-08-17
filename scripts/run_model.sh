@@ -69,11 +69,28 @@ for try in 1 2 3; do
 done
 [[ "$UPLOAD_OK" == "1" ]] || state "[$KEY] !! UPLOAD FAILED — results are ONLY on this pod's disk. Do not terminate before copying them off."
 
-# 9. Prune raw activations (~220GB/model at 275 roles) now that vectors are saved and uploaded.
-#    Re-running step 4 with a different --min_count after this requires re-extracting activations.
-if [[ "$PRUNE_ACTIVATIONS" == "1" && "$UPLOAD_OK" == "1" && -d "$OUT/release/$KEY" ]]; then
-  state "[$KEY] pruning activations"
-  rm -rf "$OUT/activations"
+# 9. Preserve raw activations to a SEPARATE public dataset (they are 57-220GB/model; keeping them
+#    next to 100MB of reports would make the results dataset unusable). Resumable large-folder
+#    upload. Non-fatal — the science is already saved — but pruning is refused unless it succeeded.
+ACT_UPLOAD_OK=0
+if [[ "$UPLOAD_ACTIVATIONS" == "1" && -d "$OUT/activations" ]]; then
+  state "[$KEY] activations upload: start ($(du -sh "$OUT/activations" 2>/dev/null | cut -f1))"
+  if timeout 6h uv run --project "$AXIS_DIR" python "$SCRIPTS_DIR/upload_activations.py" \
+       --dir "$OUT/activations" --key "$KEY" --repo "$ACTIVATIONS_REPO" >> "$OUT/logs/upload_activations.log" 2>&1; then
+    ACT_UPLOAD_OK=1; state "[$KEY] activations upload: done"
+  else
+    state "[$KEY] !! activations upload FAILED — kept on disk at $OUT/activations"
+  fi
+fi
+
+# 10. Prune ONLY if explicitly requested AND the activations are safely uploaded.
+if [[ "$PRUNE_ACTIVATIONS" == "1" ]]; then
+  if [[ "$ACT_UPLOAD_OK" == "1" ]]; then
+    state "[$KEY] pruning activations (uploaded to $ACTIVATIONS_REPO)"
+    rm -rf "$OUT/activations"
+  else
+    state "[$KEY] prune requested but activations NOT confirmed uploaded — keeping them"
+  fi
 fi
 
 state "[$KEY] COMPLETE"

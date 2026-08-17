@@ -23,7 +23,7 @@ export QUESTION_COUNT="${QUESTION_COUNT:-120}"    # 120 -> 600 responses/role
 export MIN_COUNT="${MIN_COUNT:-25}"               # scales with QUESTION_COUNT (paper ratio ~4%)
 export BATCH_SIZE="${BATCH_SIZE:-16}"
 export EXP_ROOT="${EXP_ROOT:-/workspace/exp}"
-export PRUNE_ACTIVATIONS="${PRUNE_ACTIVATIONS:-1}"   # delete raw activations after upload (~220GB/model)
+export PRUNE_ACTIVATIONS="${PRUNE_ACTIVATIONS:-0}"   # keep raw activations (uploaded to a separate public dataset); 1 = delete after upload
 
 echo "== [1/6] dependencies =="
 if ! command -v uv >/dev/null 2>&1; then

@@ -16,7 +16,7 @@ bash run_on_pod.sh
 
 That's the whole thing: it installs deps, preflights (OpenRouter judge call, GPU/disk, HF license access, tiny end-to-end per model), then runs **both models in parallel, one per GPU**, each wrapped in a retry supervisor, and finally builds the cross-generation comparison including the paper's Gemma 2 vectors.
 
-**Pod:** 2× H200 141GB (ideal — one model per card, no tensor parallelism) or 2× H100/A100 80GB. **1TB volume** at `/workspace`: raw activations run ~220GB per model at full scale (pruned automatically after upload; set `PRUNE_ACTIVATIONS=0` to keep them).
+**Pod:** 2× H200 141GB (ideal — one model per card, no tensor parallelism) or 2× H100/A100 80GB. **1TB volume** at `/workspace`: raw activations run ~220GB per model at full scale and are kept + uploaded to a separate public dataset by default (`PRUNE_ACTIVATIONS=1` to delete after a confirmed upload).
 
 Useful overrides:
 
@@ -59,7 +59,7 @@ ever being backed up. What is preserved per model:
 | vectors: `assistant_axis.pt`, `default_vector.pt`, `role_vectors/*.pt` | HF | automatic (`upload_results.py`) |
 | judge scores, reports, plots, `summary.json`, logs | HF + git (`results/`) | automatic |
 | raw transcripts joined to scores (`responses_<key>.jsonl.gz`) | HF | **manual**: `scripts/archive_responses.py --upload` |
-| raw activations | nowhere | deliberately not kept: ~57–220GB/model and exactly reproducible from the transcripts with ~25 min of GPU and no judge cost |
+| raw activations (per-response, all layers) | HF, separate dataset `*-activations` | automatic (`upload_activations.py`, resumable); ~57–220GB/model. Needed for any per-response analysis (the vectors are per-role means). `PRUNE_ACTIVATIONS=1` deletes them after a confirmed upload; never deleted otherwise |
 
 Run the archive step before terminating any pod. `SHUTDOWN=stop` keeps the disk, so a missed archive is recoverable; `terminate` is not.
 
