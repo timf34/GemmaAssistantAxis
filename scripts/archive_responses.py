@@ -106,7 +106,12 @@ def main():
     if args.upload:
         from huggingface_hub import HfApi
         api = HfApi(token=os.environ.get("HF_TOKEN"))
-        api.create_repo(args.repo, repo_type="dataset", private=True, exist_ok=True)
+        private = os.environ.get("HF_PRIVATE", "0") == "1"
+        api.create_repo(args.repo, repo_type="dataset", private=private, exist_ok=True)
+        try:
+            api.update_repo_settings(repo_id=args.repo, repo_type="dataset", private=private)
+        except Exception:  # noqa: BLE001
+            pass
         api.upload_file(path_or_fileobj=str(out_path), path_in_repo=f"{args.key}/{out_path.name}",
                         repo_id=args.repo, repo_type="dataset")
         print(f"{args.key}: uploaded to {args.repo}/{args.key}/{out_path.name}")

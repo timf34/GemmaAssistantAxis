@@ -41,6 +41,21 @@ MODELS_ONLY=gemma-4-31b bash run_on_pod.sh  # only if the above prints GEMMA 4 U
 
 **GPU:** 30.7B dense ≈ 62GB in bf16. A single **H200 141GB** is the comfortable, fastest choice; an H100 80GB works with less KV-cache headroom; an A100 80GB fits but runs roughly 2–3× slower (Ampere, no FP8) and is likelier to carry a driver too old for a current vLLM.
 
+## Storage policy: everything public, nothing only-on-the-pod
+
+Results go to the **public** HF dataset `timf34/gemma-assistant-axis-results` (`HF_PRIVATE=1` to override). Private HF repos share a
+small LFS storage quota, and a 403 from that quota is what stopped an earlier run's `.pt` tensors from
+ever being backed up. What is preserved per model:
+
+| artifact | where | how |
+|---|---|---|
+| vectors: `assistant_axis.pt`, `default_vector.pt`, `role_vectors/*.pt` | HF | automatic (`upload_results.py`) |
+| judge scores, reports, plots, `summary.json`, logs | HF + git (`results/`) | automatic |
+| raw transcripts joined to scores (`responses_<key>.jsonl.gz`) | HF | **manual**: `scripts/archive_responses.py --upload` |
+| raw activations | nowhere | deliberately not kept: ~57–220GB/model and exactly reproducible from the transcripts with ~25 min of GPU and no judge cost |
+
+Run the archive step before terminating any pod. `SHUTDOWN=stop` keeps the disk, so a missed archive is recoverable; `terminate` is not.
+
 ## Cost discipline: GPUs only for GPU work
 
 Only steps 1 (generate) and 2 (activations) need a GPU. The judge is API traffic and everything after
@@ -77,7 +92,7 @@ Per model, in the same layout as the paper's HF release (`lu-christina/assistant
 <key>/role_vectors/<role>.pt   (n_layers, hidden)   — all 275 roles that pass the judge filter
 ```
 
-Plus `RESULTS.md` (PC1↔axis cosine, variance explained, default separation, ranked role projections, layer sweep), `summary.json`, three plots, and a top-level `COMPARISON.md` across Gemma 2/3/4. Everything except raw activations/responses is uploaded to the private HF dataset `timf34/gemma-assistant-axis-results` as each model finishes.
+Plus `RESULTS.md` (PC1↔axis cosine, variance explained, default separation, ranked role projections, layer sweep), `summary.json`, three plots, and a top-level `COMPARISON.md` across Gemma 2/3/4. Everything except raw activations/responses is uploaded to the **public** HF dataset `timf34/gemma-assistant-axis-results` as each model finishes.
 
 **Integrity check:** every run reports `cos(default − mean(saved role vectors), axis)`, which must be **1.000** — it proves the axis was built from exactly the vectors that were saved (the same check that validates against the paper's Gemma 2 release).
 
