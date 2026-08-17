@@ -87,7 +87,16 @@ for i in "${!PIDS[@]}"; do
 done
 
 echo "== [6/6] cross-generation comparison =="
+# A fresh pod has no memory of earlier runs, so restore any prior model's release from the HF
+# results dataset first — otherwise the table quietly covers only what ran on THIS pod.
 # Includes the paper's published Gemma 2 27B vectors, so the table spans three generations.
+for k in gemma-3-27b gemma-4-31b; do
+  if [[ ! -d "$EXP_ROOT/$k/release/$k" ]]; then
+    (cd assistant-axis && uv run python ../scripts/fetch_prior_results.py --key "$k" \
+       --exp-root "$EXP_ROOT" --repo "${HF_RESULTS_REPO:-timf34/gemma-assistant-axis-results}") \
+       || echo "  (no prior results for $k — it will be absent from the comparison)"
+  fi
+done
 CMP=()
 for k in gemma-3-27b gemma-4-31b; do
   [[ -d "$EXP_ROOT/$k/release/$k" ]] && CMP+=("$k=$EXP_ROOT/$k/release/$k")
