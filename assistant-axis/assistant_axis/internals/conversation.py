@@ -27,6 +27,31 @@ class ConversationEncoder:
         self.tokenizer = tokenizer
         self.model_name = (model_name or getattr(tokenizer, "name_or_path", "")).lower()
 
+    def _chat_ids(self, conversation, add_generation_prompt: bool = False, **chat_kwargs) -> List[int]:
+        """apply_chat_template(tokenize=True) -> a plain list[int], on every transformers version.
+
+        transformers 4.x returned list[int]. transformers 5.x returns a BatchEncoding
+        ({'input_ids': [...], 'attention_mask': [...]}). Every caller in this file does span
+        arithmetic on the result -- len(), longest-common-prefix, subsequence search, list
+        concatenation -- and against a BatchEncoding all of that is silently WRONG before it is
+        loudly wrong: len() returns 2 (the number of KEYS), so every offset is computed as if the
+        conversation were two tokens long. It happened to crash at `ids + [pad]` in
+        activations.py:308 (TypeError: BatchEncoding + list); it could just as easily have produced
+        corrupt spans that flowed straight into the role vectors. This is the ONE place that
+        normalises it. Do not call apply_chat_template(tokenize=True) directly anywhere else here.
+        """
+        out = self.tokenizer.apply_chat_template(
+            conversation, tokenize=True, add_generation_prompt=add_generation_prompt, **chat_kwargs
+        )
+        if hasattr(out, "keys") and "input_ids" in out:      # transformers >= 5: BatchEncoding
+            out = out["input_ids"]
+        if hasattr(out, "tolist"):                            # return_tensors set by caller
+            out = out.tolist()
+        # A batched encoding of a single conversation comes back as [[...]]; unwrap it.
+        if out and isinstance(out[0], (list, tuple)):
+            out = list(out[0])
+        return list(out)
+
     def _is_qwen(self) -> bool:
         """Check if this is a Qwen model."""
         return 'qwen' in self.model_name
@@ -92,12 +117,7 @@ class ConversationEncoder:
         Returns:
             List of token IDs
         """
-        return self.tokenizer.apply_chat_template(
-            conversation,
-            tokenize=True,
-            add_generation_prompt=add_generation_prompt,
-            **chat_kwargs,
-        )
+        return self._chat_ids(conversation, add_generation_prompt=add_generation_prompt, **chat_kwargs)
 
     def response_indices(
         self,
@@ -394,9 +414,7 @@ class ConversationEncoder:
             - spans: list of dicts with absolute [start, end) token spans for content per turn
         """
         # Tokenize the full conversation first
-        full_ids = self.tokenizer.apply_chat_template(
-            conversation, tokenize=True, add_generation_prompt=False, **chat_kwargs
-        )
+        full_ids = self._chat_ids(conversation, **chat_kwargs)
 
         # For Qwen models, use pattern-matching approach (matches persona-subspace behavior)
         if self._is_qwen():
@@ -421,13 +439,11 @@ class ConversationEncoder:
             # Standard approach for non-Qwen models
             # Calculate absolute start based on the empty message template
             msgs_empty_for_this = msgs_before + [{"role": role, "content": ""}]
-            ids_empty_full = self.tokenizer.apply_chat_template(
-                msgs_empty_for_this, tokenize=True, add_generation_prompt=False, **chat_kwargs
-            )
+            ids_empty_full = self._chat_ids(msgs_empty_for_this, **chat_kwargs)
 
             # Find where the content appears in the full sequence
-            ids_full_for_this = self.tokenizer.apply_chat_template(
-                msgs_before + [{"role": role, "content": text}], tokenize=True, add_generation_prompt=False, **chat_kwargs
+            ids_full_for_this = self._chat_ids(
+                msgs_before + [{"role": role, "content": text}], **chat_kwargs
             )
 
             pref_len = self._longest_common_prefix_len(ids_full_for_this, ids_empty_full)
@@ -767,9 +783,7 @@ class ConversationEncoder:
         if role == "assistant":
             # Find where content appears in the full tokenized conversation
             msgs_full = messages_before + [{"role": role, "content": content}]
-            ids_full = self.tokenizer.apply_chat_template(
-                msgs_full, tokenize=True, add_generation_prompt=False, **chat_kwargs
-            )
+            ids_full = self._chat_ids(msgs_full, **chat_kwargs)
 
             # Find the content tokens in the full sequence
             plain = self.tokenizer(content, add_special_tokens=False).input_ids
@@ -778,9 +792,7 @@ class ConversationEncoder:
             if content_start != -1:
                 # Calculate offset from the beginning of the conversation
                 if messages_before:
-                    ids_before = self.tokenizer.apply_chat_template(
-                        messages_before, tokenize=True, add_generation_prompt=False, **chat_kwargs
-                    )
+                    ids_before = self._chat_ids(messages_before, **chat_kwargs)
                     prefix_len = len(ids_before)
                 else:
                     prefix_len = 0
@@ -804,17 +816,11 @@ class ConversationEncoder:
 
         # Handle empty messages_before case
         if messages_before:
-            ids_before = self.tokenizer.apply_chat_template(
-                messages_before, tokenize=True, add_generation_prompt=False, **chat_kwargs
-            )
+            ids_before = self._chat_ids(messages_before, **chat_kwargs)
         else:
             ids_before = []
-        ids_empty = self.tokenizer.apply_chat_template(
-            msgs_empty, tokenize=True, add_generation_prompt=False, **chat_kwargs
-        )
-        ids_full  = self.tokenizer.apply_chat_template(
-            msgs_full,  tokenize=True, add_generation_prompt=False, **chat_kwargs
-        )
+        ids_empty = self._chat_ids(msgs_empty, **chat_kwargs)
+        ids_full  = self._chat_ids(msgs_full, **chat_kwargs)
 
         # Suffix introduced by adding this message (template + content)
         pref = self._longest_common_prefix_len(ids_full, ids_empty)

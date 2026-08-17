@@ -31,29 +31,34 @@ export PRUNE_ACTIVATIONS="${PRUNE_ACTIVATIONS:-0}"   # keep raw activations (upl
 # cannot raise the driver). vLLM >= 0.19 wheels need CUDA 12.8+. Fail here, in one second, before a
 # multi-minute uv sync — or enable NVIDIA forward-compat if the host supports it.
 echo "== [0/6] host driver check (before anything else) =="
+# Uses scripts/cuda_compat.sh so the required CUDA version comes from the INSTALLED TORCH, not a
+# constant. This step originally hardcoded cuda-compat-12-8 / /usr/local/cuda-12.8/compat; on this
+# pod torch is cu130, so that path can never exist, and worse, this step then OVERWROTE the working
+# .cuda_compat.env with the wrong path on every launch. It also tested `-d` on the directory, which
+# passes on the stripped, library-less cuda-compat package this image ships (see TROUBLESHOOTING.md).
+# At step 0 the venv may not exist yet, so torch may be unqueryable: in that case fall back to any
+# real compat dir on disk (glob, highest version first) and let the doctor -- which runs after deps
+# install and CAN ask torch -- make the authoritative call and (re)write .cuda_compat.env.
+source scripts/cuda_compat.sh
+# If a previous run already enabled compat, honour it now so nvidia-smi/torch below see it.
+[[ -f "$EXP_ROOT/.cuda_compat.env" ]] && source "$EXP_ROOT/.cuda_compat.env"
 DRV_CUDA=$(nvidia-smi 2>/dev/null | grep -oE 'CUDA Version: [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+' | head -1)
-MIN_CUDA="${MIN_CUDA:-12.8}"
-COMPAT_VER="${COMPAT_VER:-12-8}"
-COMPAT_DIR="/usr/local/cuda-${COMPAT_VER/-/.}/compat"
+TORCH_CUDA="$(cuda_compat_torch_cuda "$(pwd)/assistant-axis")"
+MIN_CUDA="${MIN_CUDA:-${TORCH_CUDA:-12.8}}"
 if [[ -z "$DRV_CUDA" ]]; then
   echo "!! nvidia-smi shows no driver CUDA version — is this a GPU pod?"; exit 1
 fi
 if [[ "$(printf '%s\n%s\n' "$MIN_CUDA" "$DRV_CUDA" | sort -V | head -1)" != "$MIN_CUDA" ]]; then
   echo "  driver CUDA $DRV_CUDA < $MIN_CUDA (driver $(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1))"
-  echo "  -> attempting NVIDIA forward-compatibility (cuda-compat-$COMPAT_VER, supported on datacenter GPUs)"
-  if [[ ! -d "$COMPAT_DIR" ]]; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq >/dev/null 2>&1 || true
-    if ! apt-get install -y -qq "cuda-compat-$COMPAT_VER" >/dev/null 2>&1; then
-      . /etc/os-release; distro="${ID}${VERSION_ID//./}"
-      curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/${distro}/x86_64/cuda-keyring_1.1-1_all.deb" -o /tmp/cuda-keyring.deb 2>/dev/null \
-        && dpkg -i /tmp/cuda-keyring.deb >/dev/null 2>&1 && apt-get update -qq >/dev/null 2>&1 \
-        && apt-get install -y -qq "cuda-compat-$COMPAT_VER" >/dev/null 2>&1 || true
-    fi
+  echo "  -> attempting NVIDIA forward-compatibility ($(cuda_compat_pkg "$MIN_CUDA"), supported on datacenter GPUs)"
+  COMPAT_DIR="$(cuda_compat_find_dir "$MIN_CUDA")"
+  if [[ -z "$COMPAT_DIR" ]]; then
+    cuda_compat_install "$MIN_CUDA" || true
+    COMPAT_DIR="$(cuda_compat_find_dir "$MIN_CUDA")"
   fi
-  if [[ ! -d "$COMPAT_DIR" ]]; then
+  if [[ -z "$COMPAT_DIR" ]]; then
     echo "=========================================================================="
-    echo " UNUSABLE HOST: driver CUDA $DRV_CUDA < $MIN_CUDA and cuda-compat-$COMPAT_VER not installable."
+    echo " UNUSABLE HOST: driver CUDA $DRV_CUDA < $MIN_CUDA and $(cuda_compat_pkg "$MIN_CUDA") not installable."
     echo " Nothing inside the pod can raise the driver. Rent a host with driver >= 570"
     echo " (ask RunPod which region/template) — do NOT judge by the template's CUDA version."
     echo "=========================================================================="
@@ -61,8 +66,13 @@ if [[ "$(printf '%s\n%s\n' "$MIN_CUDA" "$DRV_CUDA" | sort -V | head -1)" != "$MI
   fi
   export LD_LIBRARY_PATH="$COMPAT_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   mkdir -p "$EXP_ROOT"
-  echo "export LD_LIBRARY_PATH=\"$COMPAT_DIR\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"" > "$EXP_ROOT/.cuda_compat.env"
-  echo "  forward-compat libs installed at $COMPAT_DIR — will be verified against torch after deps install"
+  # Only write the env file when we could not read torch's CUDA version (fresh pod, no venv). When
+  # torch IS queryable the doctor writes it after verifying the GPU actually works, so a wrong guess
+  # here can never clobber a verified-good config.
+  if [[ -z "$TORCH_CUDA" && ! -f "$EXP_ROOT/.cuda_compat.env" ]]; then
+    echo "export LD_LIBRARY_PATH=\"$COMPAT_DIR\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"" > "$EXP_ROOT/.cuda_compat.env"
+  fi
+  echo "  forward-compat libs present at $COMPAT_DIR — verified against torch by the doctor after deps install"
 else
   echo "  driver CUDA $DRV_CUDA >= $MIN_CUDA — ok"
 fi
