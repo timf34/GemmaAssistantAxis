@@ -139,7 +139,18 @@ class ProbingModel:
         # Try common paths for transformer layers
         layer_paths = [
             ('model.model.layers', lambda m: m.model.layers),  # Standard language models (Llama, Gemma 2, Qwen, etc.)
-            ('model.language_model.layers', lambda m: m.language_model.layers),  # Vision-language models (Gemma 3, LLaVA, etc.)
+            ('model.language_model.layers', lambda m: m.language_model.layers),  # Vision-language models (Gemma 3, LLaVA, etc.) — transformers 4.x layout
+            # transformers 5.x moved the VLM text stack one level down, under .model. Verified on
+            # 2026-08-17 with transformers 5.14.1: Gemma4ForConditionalGeneration exposes 60
+            # Gemma4TextDecoderLayer at model.model.language_model.layers, and
+            # Gemma3ForConditionalGeneration exposes 62 Gemma3DecoderLayer at the same path — so the
+            # 4.x path above now matches NEITHER gemma model and activation extraction died with
+            # "Could not find transformer layers".
+            # KEEP THIS SPECIFIC TO language_model. Both models also carry a vision tower at
+            # model.vision_tower.encoder.layers (27 layers). A looser match would silently probe the
+            # IMAGE encoder and produce perfectly well-formed, completely meaningless role vectors —
+            # a failure that would survive every downstream check and only show up as noise.
+            ('model.model.language_model.layers', lambda m: m.model.language_model.layers),
             ('model.transformer.h', lambda m: m.transformer.h),  # GPT-style models
             ('model.transformer.layers', lambda m: m.transformer.layers),  # Some transformer variants
             ('model.gpt_neox.layers', lambda m: m.gpt_neox.layers),  # GPT-NeoX models

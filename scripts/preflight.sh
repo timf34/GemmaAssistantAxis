@@ -10,6 +10,18 @@ NGPU=$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
 [[ "$NGPU" -ge 1 ]] || { echo "FATAL: no GPUs visible" >&2; exit 1; }
 GPUS=(0 $(( NGPU >= 2 ? 1 : 0 )))
 KEYS=("gemma-3-27b" "gemma-4-31b")
+# Honour MODELS_ONLY the same way run_on_pod.sh's launch() does. Without this, a
+# MODELS_ONLY=gemma-4-31b run still pre-downloaded gemma-3 (~54GB) and put it through a full
+# generate/activations/judge cycle -- GPU hours and judge spend for a model this run will not touch.
+INDICES=(0 1)
+if [[ -n "${MODELS_ONLY:-}" ]]; then
+  INDICES=()
+  for i in 0 1; do [[ "${KEYS[$i]}" == "$MODELS_ONLY" ]] && INDICES+=("$i"); done
+  if [[ ${#INDICES[@]} -eq 0 ]]; then
+    echo "FATAL: MODELS_ONLY='$MODELS_ONLY' matches none of: ${KEYS[*]}" >&2; exit 1
+  fi
+  echo "MODELS_ONLY=$MODELS_ONLY -> preflighting only: ${KEYS[${INDICES[0]}]}"
+fi
 
 echo "== 1/4 OpenRouter judge check =="
 resp=$(curl -sS "$OPENAI_BASE_URL/chat/completions" \
@@ -19,14 +31,21 @@ echo "$resp" | grep -q '"choices"' || { echo "FATAL: OpenRouter test call failed
 echo "ok"
 
 echo "== 2/4 GPU / disk =="
-ngpu=$(nvidia-smi --list-gpus | wc -l)
-[[ "$ngpu" -ge 2 ]] || { echo "FATAL: need 2 GPUs, found $ngpu" >&2; exit 1; }
+# Require 1 GPU, not 2. This check used to hard-fail with "need 2 GPUs" and killed the whole
+# overnight launch on a healthy 1xH200 pod -- AFTER the doctor had already printed "ALL ENVIRONMENT
+# CHECKS PASSED". It contradicted every other part of the repo: line 11 above already maps both
+# models onto whatever GPUs exist precisely so a 1-GPU pod works, doctor.sh reports the 1-GPU plan
+# as ok ("2 models SEQUENTIALLY on GPU 0"), and run_on_pod.sh has an explicit PARALLEL=0 branch for
+# it. Leftover from when the design assumed a 2-GPU pod. One GPU is slower, not invalid.
+[[ "$NGPU" -ge 1 ]] || { echo "FATAL: no GPUs visible" >&2; exit 1; }
+[[ "$NGPU" -ge 2 ]] || echo "  note: 1 GPU — models run sequentially (~2x wall-clock), not in parallel"
 df -h /workspace
 avail_gb=$(df -BG --output=avail /workspace | tail -1 | tr -dc '0-9')
 [[ "$avail_gb" -ge 600 ]] || echo "WARNING: <600GB free — full run needs ~450GB activations + ~120GB models. Consider a bigger volume or LAYER subset."
 
 echo "== 3/4 HF access (license-gated repos) =="
-for m in "${MODELS[@]}"; do
+for i in "${INDICES[@]}"; do
+  m="${MODELS[$i]}"
   uv run --project "$AXIS_DIR" python -c "
 from huggingface_hub import hf_hub_download
 hf_hub_download('$m', 'config.json')
@@ -34,7 +53,7 @@ print('access ok: $m')" || { echo "FATAL: cannot access $m — accept the Gemma 
 done
 
 echo "== 4/4 Tiny end-to-end per model (pirate + default, 3 questions) =="
-for i in 0 1; do
+for i in "${INDICES[@]}"; do
   m="${MODELS[$i]}"; key="${KEYS[$i]}"; gpu="${GPUS[$i]}"
   out="$EXP_ROOT/preflight/$key"
   echo "--- $m on GPU $gpu ---"

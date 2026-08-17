@@ -30,32 +30,40 @@ echo "== doctor: driver / CUDA (checked FIRST — nothing else matters if torch 
 # vLLM >= 0.19 wheels are built for CUDA 12.8/12.9/13.0. The DRIVER is a host property (RunPod's H200
 # hosts have shipped driver 550 = CUDA 12.4 across three separate templates — the template's CUDA
 # version is the container toolkit and cannot raise the driver). Two ways to proceed on an old driver:
-#   1. NVIDIA forward-compat: cuda-compat-12-8 installs newer user-space libcuda under
-#      /usr/local/cuda-12.8/compat; datacenter GPUs (H100/H200/A100) support this. Try it.
+#   1. NVIDIA forward-compat: cuda-compat-<ver> installs newer user-space libcuda under
+#      /usr/local/cuda-<ver>/compat; datacenter GPUs (H100/H200/A100) support this. Try it.
 #   2. If that fails: a host with a newer driver (ask RunPod which regions run 570+), or pin an
 #      older vllm/torch (which cannot load gemma-4).
+# The required CUDA version is read from the INSTALLED TORCH, not hardcoded: this pod resolved to
+# torch 2.13.0+cu130, so the answer was cuda-compat-13-0, and the old hardcoded 12.8 path could
+# never have appeared no matter how many times it was installed. See scripts/cuda_compat.sh.
+source "$(dirname "${BASH_SOURCE[0]}")/cuda_compat.sh"
+# HEADS UP when reading the log: nvidia-smi reports the version of whichever libcuda it loads, so
+# once forward-compat is active (common.sh sources .cuda_compat.env before this runs) this prints
+# "driver supports CUDA 13.0" on a box whose KERNEL driver is still 550.144.03 / CUDA 12.4 --
+# `nvidia-smi` alone says 12.4, `LD_LIBRARY_PATH=/usr/local/cuda-13.0/compat nvidia-smi` says 13.0.
+# That is the compat layer working as intended, not the host driver changing (it cannot change from
+# inside the container). The check below is therefore self-consistent: delete .cuda_compat.env and
+# it drops back to 12.4 and re-runs the compat branch. True kernel version: /proc/driver/nvidia/version.
 DRV_CUDA=$(nvidia-smi 2>/dev/null | grep -oE 'CUDA Version: [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+' | head -1)
-MIN_CUDA="${MIN_CUDA:-12.8}"
-COMPAT_VER="${COMPAT_VER:-12-8}"
+TORCH_CUDA="$(cuda_compat_torch_cuda "$AXIS_DIR")"
+MIN_CUDA="${MIN_CUDA:-${TORCH_CUDA:-12.8}}"
+COMPAT_VER="${COMPAT_VER:-${MIN_CUDA//./-}}"
+[[ -n "$TORCH_CUDA" ]] && echo "  venv torch is built for CUDA $TORCH_CUDA -> needs driver CUDA >= $MIN_CUDA"
 torch_ok() { (cd "$AXIS_DIR" && uv run python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)" >/dev/null 2>&1); }
 if [[ -z "$DRV_CUDA" ]]; then
   fail "nvidia-smi reports no driver CUDA version"
 elif [[ "$(printf '%s\n%s\n' "$MIN_CUDA" "$DRV_CUDA" | sort -V | head -1)" != "$MIN_CUDA" ]]; then
   echo "  driver supports CUDA $DRV_CUDA < $MIN_CUDA — trying NVIDIA forward-compatibility (cuda-compat-$COMPAT_VER)"
-  COMPAT_DIR="/usr/local/cuda-${COMPAT_VER/-/.}/compat"
-  if [[ ! -d "$COMPAT_DIR" ]]; then
-    ( export DEBIAN_FRONTEND=noninteractive
-      apt-get update -qq >/dev/null 2>&1 || true
-      # NVIDIA apt repo may not be configured on the image; add it if the package is unknown.
-      if ! apt-get install -y -qq "cuda-compat-$COMPAT_VER" >/dev/null 2>&1; then
-        . /etc/os-release; distro="${ID}${VERSION_ID//./}"
-        curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/${distro}/x86_64/cuda-keyring_1.1-1_all.deb" -o /tmp/cuda-keyring.deb 2>/dev/null \
-          && dpkg -i /tmp/cuda-keyring.deb >/dev/null 2>&1 && apt-get update -qq >/dev/null 2>&1 \
-          && apt-get install -y -qq "cuda-compat-$COMPAT_VER" >/dev/null 2>&1 || true
-      fi
-    ) || true
+  # Locate real compat libs. Test for libcuda.so.1, NOT just a directory: this image shipped a
+  # cuda-compat-12-8 dpkg entry with every library stripped out (its version is not even in NVIDIA's
+  # repo), so "apt says installed" proved nothing and a bare -d test would have passed on an empty dir.
+  COMPAT_DIR="$(cuda_compat_find_dir "$MIN_CUDA")"
+  if [[ -z "$COMPAT_DIR" ]]; then
+    cuda_compat_install "$MIN_CUDA" || true
+    COMPAT_DIR="$(cuda_compat_find_dir "$MIN_CUDA")"
   fi
-  if [[ -d "$COMPAT_DIR" ]]; then
+  if [[ -n "$COMPAT_DIR" ]]; then
     export LD_LIBRARY_PATH="$COMPAT_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     if torch_ok; then
       ok "forward-compat active: $COMPAT_DIR on driver CUDA $DRV_CUDA — torch sees the GPU"

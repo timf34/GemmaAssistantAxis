@@ -61,7 +61,20 @@ def get_config(model_name: str) -> dict:
     try:
         from transformers import AutoConfig
         config = AutoConfig.from_pretrained(model_name)
-        total_layers = config.num_hidden_layers
+        # Multimodal-style configs (gemma-3 / gemma-4 are *ForConditionalGeneration) nest the
+        # language-model hyperparameters under .text_config, so the top-level object has no
+        # num_hidden_layers at all. scripts/doctor.sh already reads it with this fallback and
+        # reported layers=60 for gemma-4; without the same fallback here, preflight blew up with
+        # "'Gemma4Config' object has no attribute 'num_hidden_layers'" on the very same model the
+        # doctor had just passed. Read the top level first, then fall back to text_config.
+        total_layers = getattr(config, "num_hidden_layers", None) or getattr(
+            getattr(config, "text_config", None), "num_hidden_layers", None
+        )
+        if not total_layers:
+            raise AttributeError(
+                f"{type(config).__name__} exposes num_hidden_layers neither at the top level "
+                f"nor under .text_config"
+            )
         target_layer = total_layers // 2  # Default to middle layer
 
         # Infer short name from model name
