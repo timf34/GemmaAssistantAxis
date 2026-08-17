@@ -26,6 +26,29 @@ FAILED=0
 ok()   { echo "  [ok]   $*"; }
 fail() { echo "  [FAIL] $*"; FAILED=$((FAILED+1)); }
 
+echo "== doctor: driver / CUDA (checked FIRST — nothing else matters if torch cannot load) =="
+# vLLM >= 0.19 wheels are built for CUDA 12.8/12.9/13.0 (no 12.4 build exists), and torch's
+# libcusparseLt import dies on an older driver. The driver lives on the HOST — it cannot be fixed
+# from inside the pod. Catch it here, name the pod requirement, and stop before anything else runs.
+DRV_CUDA=$(nvidia-smi 2>/dev/null | grep -oE 'CUDA Version: [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+' | head -1)
+MIN_CUDA="${MIN_CUDA:-12.8}"
+if [[ -z "$DRV_CUDA" ]]; then
+  fail "nvidia-smi reports no driver CUDA version"
+elif [[ "$(printf '%s\n%s\n' "$MIN_CUDA" "$DRV_CUDA" | sort -V | head -1)" != "$MIN_CUDA" ]]; then
+  fail "driver supports CUDA $DRV_CUDA but this stack (vllm>=0.19, transformers>=5.5) needs >= $MIN_CUDA."
+  echo "         This is a HOST driver limit — it cannot be fixed inside the pod."
+  echo "         Rent a pod whose template shows CUDA >= $MIN_CUDA (e.g. a 'CUDA 12.8'/'12.9'/'13.x' PyTorch image),"
+  echo "         or set MIN_CUDA lower ONLY if you have pinned an older vllm/torch that matches this driver."
+  echo
+  echo "=========================================================="
+  echo " DRIVER TOO OLD — STOPPING BEFORE ANY OTHER CHECK        "
+  echo "=========================================================="
+  state "doctor: driver CUDA $DRV_CUDA < $MIN_CUDA — pod unusable for this stack"
+  exit 1
+else
+  ok "driver supports CUDA $DRV_CUDA (>= $MIN_CUDA)"
+fi
+
 echo "== doctor: credentials =="
 # common.sh already resolved/normalised these or exited.
 ok ".env resolved; judge key present (${OPENAI_API_KEY:0:8}...), base URL $OPENAI_BASE_URL"

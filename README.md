@@ -32,6 +32,13 @@ Useful overrides:
 
 ## Gemma 4
 
+**Pod driver requirement: CUDA >= 12.8.** Gemma 4 needs vLLM >= 0.19 / transformers >= 5.5, and vLLM 0.19
+wheels exist only for CUDA 12.8/12.9/13.0. On a pod whose `nvidia-smi` shows `CUDA Version: 12.4` torch
+cannot even import (`libcusparseLt.so.0`); the driver is on the host and cannot be changed from inside the
+container. When renting, pick a template that advertises CUDA 12.8+ (RunPod: the "PyTorch 2.x + CUDA 12.8"
+or newer images). The doctor checks this first and refuses to continue on an old driver.
+
+
 `gemma-4-31B-it` needs transformers 5.x (its config declares `model_type "gemma4"`); a first attempt died on 4.57.5. Unblock and **prove** it before spending GPU hours:
 
 ```bash
