@@ -5,7 +5,10 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 MODELS=("google/gemma-3-27b-it" "google/gemma-4-31B-it")
-GPUS=(0 1)
+# Map both models onto whatever GPUs exist (a 1-GPU pod crashes vLLM otherwise).
+NGPU=$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
+[[ "$NGPU" -ge 1 ]] || { echo "FATAL: no GPUs visible" >&2; exit 1; }
+GPUS=(0 $(( NGPU >= 2 ? 1 : 0 )))
 KEYS=("gemma-3-27b" "gemma-4-31b")
 
 echo "== 1/4 OpenRouter judge check =="

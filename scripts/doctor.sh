@@ -79,9 +79,15 @@ for m in $DOCTOR_MODELS; do
 done
 
 echo "== doctor: hardware + disk =="
+NGPU=$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
 if (cd "$AXIS_DIR" && uv run python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null); then
-  ok "torch sees $(nvidia-smi --list-gpus | wc -l) GPU(s): $(nvidia-smi --query-gpu=name --format=csv,noheader | paste -sd', ' -)"
+  ok "torch sees $NGPU GPU(s): $(nvidia-smi --query-gpu=name --format=csv,noheader | paste -sd', ' -)"
 else fail "torch cannot use the GPU (driver/CUDA mismatch: $(nvidia-smi 2>/dev/null | grep -oE 'CUDA Version: [0-9.]+' | head -1))"; fi
+# Never assume 2 GPUs: a single-GPU pod crashes vLLM with NVMLError_InvalidArgument because
+# CUDA_VISIBLE_DEVICES=1 points at a device that does not exist. State the plan explicitly.
+if [[ "$NGPU" -ge 2 ]]; then ok "execution plan: 2 models in PARALLEL, one per GPU"
+elif [[ "$NGPU" -eq 1 ]]; then ok "execution plan: 1 GPU -> 2 models SEQUENTIALLY on GPU 0 (~2x wall-clock)"
+else fail "no GPUs visible"; fi
 avail=$(df -BG --output=avail /workspace 2>/dev/null | tail -1 | tr -dc '0-9')
 if [[ -n "$avail" && "$avail" -ge "$MIN_DISK_GB" ]]; then ok "${avail}GB free on /workspace (need ~${MIN_DISK_GB}GB)"
 else fail "only ${avail:-?}GB free on /workspace, need ~${MIN_DISK_GB}GB"; fi

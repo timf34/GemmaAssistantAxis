@@ -52,20 +52,36 @@ else
   echo "  skipped (SKIP_PREFLIGHT=1)"
 fi
 
-echo "== [4/6] launching both models in parallel (one per GPU) =="
+# How many GPUs do we actually have? Never assume 2 — a single-GPU pod makes vLLM fail with
+# NVMLError_InvalidArgument because CUDA_VISIBLE_DEVICES points at a device that does not exist.
+NGPU=$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
+[[ "$NGPU" -ge 1 ]] || { echo "!! no GPUs visible"; exit 1; }
+if [[ "$NGPU" -ge 2 ]]; then
+  echo "== [4/6] $NGPU GPUs: running both models IN PARALLEL, one per GPU =="
+  PARALLEL=1
+else
+  echo "== [4/6] 1 GPU: running the two models SEQUENTIALLY on GPU 0 (roughly 2x wall-clock) =="
+  PARALLEL=0
+fi
+
 mkdir -p "$EXP_ROOT"
-declare -a PIDS=() KEYS=()
+declare -a PIDS=() KEYS=() FAILED=()
 launch() {  # launch <hf_id> <gpu> <key>
   if [[ -n "${MODELS_ONLY:-}" && "${MODELS_ONLY}" != "$3" ]]; then echo "  skipping $3"; return; fi
   echo "  $3: $1 on GPU $2  (log: $EXP_ROOT/$3/logs/)"
   bash scripts/supervisor.sh "$1" "$2" "$3" > "$EXP_ROOT/$3.supervisor.log" 2>&1 &
-  PIDS+=($!); KEYS+=("$3")
+  local pid=$!
+  if [[ "$PARALLEL" == "1" ]]; then
+    PIDS+=("$pid"); KEYS+=("$3")
+  else
+    # One GPU: finish this model before starting the next, so they never contend for memory.
+    if wait "$pid"; then echo "  $3: OK"; else echo "  $3: FAILED"; FAILED+=("$3"); fi
+  fi
 }
 launch google/gemma-3-27b-it 0 gemma-3-27b
-launch google/gemma-4-31B-it 1 gemma-4-31b
+launch google/gemma-4-31B-it $(( NGPU >= 2 ? 1 : 0 )) gemma-4-31b
 
 echo "== [5/6] waiting (tail $EXP_ROOT/STATE.md for progress) =="
-FAILED=()
 for i in "${!PIDS[@]}"; do
   if wait "${PIDS[$i]}"; then echo "  ${KEYS[$i]}: OK"; else echo "  ${KEYS[$i]}: FAILED"; FAILED+=("${KEYS[$i]}"); fi
 done
