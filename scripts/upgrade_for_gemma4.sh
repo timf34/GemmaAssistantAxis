@@ -44,13 +44,21 @@ try:
 except Exception as e: print('vllm import failed:', e)")
 
 echo
-echo "== upgrading transformers (and vLLM, which pins it) =="
-(cd "$AXIS_DIR" && uv pip install -U transformers) || { echo "!! transformers upgrade failed"; exit 1; }
-if [[ "${UPGRADE_VLLM:-1}" == "1" ]]; then
-  (cd "$AXIS_DIR" && uv pip install -U vllm) || echo "  (vllm upgrade failed — continuing; may still work)"
+echo "== upgrading vLLM + transformers TOGETHER =="
+# Resolve both in ONE command. Installing them separately fails: vLLM <0.19 pins transformers<5,
+# so a later `uv pip install -U vllm` silently DOWNGRADES transformers back below the gemma4
+# threshold (observed: transformers 5.x -> 4.57.5, vllm 0.13.0, gemma4 still unloadable).
+# vLLM 0.19.1+ ships day-0 Gemma 4 support and itself requires transformers>=5.5.3.
+VLLM_FLOOR="${VLLM_FLOOR:-0.19.1}"
+TRANSFORMERS_FLOOR="${TRANSFORMERS_FLOOR:-5.5.3}"
+echo "  targeting vllm>=$VLLM_FLOOR and transformers>=$TRANSFORMERS_FLOOR"
+if ! (cd "$AXIS_DIR" && uv pip install -U "vllm>=$VLLM_FLOOR" "transformers>=$TRANSFORMERS_FLOOR"); then
+  echo "!! could not resolve vllm>=$VLLM_FLOOR with transformers>=$TRANSFORMERS_FLOOR."
+  echo "   Most likely a torch/CUDA constraint on this image. Check the resolver output above."
+  echo "   Fallbacks: newer base image (CUDA 12.8+), or VLLM_FLOOR=<other> to try another release."
+  exit 1
 fi
 
-echo
 echo "== new versions =="
 (cd "$AXIS_DIR" && uv run python -c "
 import transformers; print('transformers', transformers.__version__)
@@ -59,6 +67,22 @@ try:
 except Exception as e: print('vllm import failed:', e)")
 
 echo
+# Guard: the whole failure mode here is "the install reported success but versions moved back".
+if ! (cd "$AXIS_DIR" && uv run python - "$VLLM_FLOOR" "$TRANSFORMERS_FLOOR" <<'PY'
+import sys
+from packaging.version import Version
+import transformers, vllm
+tf_ok = Version(transformers.__version__) >= Version(sys.argv[2])
+vl_ok = Version(vllm.__version__) >= Version(sys.argv[1])
+print(f"transformers {transformers.__version__} {'>=' if tf_ok else '<'} {sys.argv[2]}")
+print(f"vllm         {vllm.__version__} {'>=' if vl_ok else '<'} {sys.argv[1]}")
+sys.exit(0 if (tf_ok and vl_ok) else 1)
+PY
+); then
+  echo "!! versions did not land above the required floors — gemma4 will not load. Stopping."
+  exit 1
+fi
+
 echo "== verify: config + tokenizer load (this is what failed before) =="
 if ! (cd "$AXIS_DIR" && uv run python - "$MODEL" <<'PY'
 import sys

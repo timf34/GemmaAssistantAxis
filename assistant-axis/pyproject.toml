@@ -6,12 +6,12 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0",
-    "transformers>=4.40",
+    "transformers>=5.5.3",   # LOCAL: gemma4 model_type needs >=5.5.0; vllm>=0.19.1 requires >=5.5.3
     "accelerate",
     "huggingface_hub",
     "hf_transfer",   # LOCAL: RunPod images set HF_HUB_ENABLE_HF_TRANSFER=1; without this every HF download fails
     "hf_xet",        # LOCAL: same, for HF_HUB_ENABLE_XET
-    "vllm",
+    "vllm>=0.19.1",          # LOCAL: day-0 Gemma 4 support; earlier releases pin transformers<5
     "scikit-learn",
     "numpy",
     "plotly",
