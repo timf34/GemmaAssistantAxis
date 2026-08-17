@@ -255,6 +255,58 @@ prevents.
 
 ---
 
+## 9. `TypeError: unsupported operand type(s) for +: 'BatchEncoding' and 'list'`
+
+**Symptom.** Generation succeeds and `get_layers()` finds the model, then activation extraction
+dies at `activations.py:308` (`padded_ids = ids + [pad] * n`).
+
+**Cause.** On transformers 5.x, `tokenizer.apply_chat_template(..., tokenize=True)` returns a
+`BatchEncoding` (`{'input_ids': [...], 'attention_mask': [...]}`); on 4.x it returned a plain
+`list[int]`. `assistant_axis/internals/conversation.py` had **nine** call sites feeding that result
+into span arithmetic — `len()`, longest-common-prefix, subsequence search, list concatenation.
+
+**Why this one is nasty.** `len(BatchEncoding)` is **2** — the number of *keys* — so every offset
+would be computed as though the conversation were two tokens long. It happened to crash at the `+`.
+It could just as easily have produced silently corrupt spans that flowed straight into the role
+vectors and passed every downstream check.
+
+**Fix.** One `_chat_ids()` helper on `ConversationEncoder` that always returns `list[int]`
+(unwraps `input_ids`, `.tolist()`s tensors, unwraps a `[[...]]` batch), and all nine sites routed
+through it. Do not call `apply_chat_template(tokenize=True)` directly anywhere else in that file.
+
+**Verify** — the test that matters is that spans decode back to their own content, not merely that
+nothing crashes:
+```python
+full_ids, spans = enc.build_turn_spans(conv)
+for s in spans:
+    print(s['role'], tok.decode(full_ids[s['start']:s['end']]))
+# user      -> 'What is the relationship between law and morality?'
+# assistant -> 'Arr, the law be the map and morality be the compass, matey.'
+```
+
+---
+
+## 10. Step-0 driver check clobbers a working compat config
+
+**Symptom.** A launch on an already-working pod suddenly fails the driver check, or
+`/workspace/exp/.cuda_compat.env` points at `/usr/local/cuda-12.8/compat` after having pointed at
+`13.0`.
+
+**Cause.** Commit `344a707` added an early "step 0" driver check to `run_on_pod.sh` — a good idea
+(fail in one second, before the multi-minute `uv sync`) — but as written it re-hardcoded
+`cuda-compat-12-8`, tested `-d` on the directory (passes on the phantom package, see #1), and
+**overwrote** `.cuda_compat.env` with that wrong path on every launch.
+
+**Fix.** Step 0 now goes through `scripts/cuda_compat.sh` (version from torch; glob fallback on a
+fresh pod with no venv) and only writes `.cuda_compat.env` when torch is unqueryable *and* no
+verified file exists. The doctor — which runs after deps install and can ask torch — remains the
+authority and (re)writes the file after confirming the GPU actually works.
+
+**Lesson.** Any new code path that decides the compat version must go through `cuda_compat.sh`.
+There have now been three independent hardcodings of `12-8` in this repo; each one broke the pod.
+
+---
+
 ## Self-shutdown (`SHUTDOWN=stop`) silently does nothing
 
 `run_on_pod.sh` requires `RUNPOD_POD_ID` **and** an authenticated `runpodctl`. On this pod neither
@@ -284,4 +336,6 @@ are working on. Note the API key persists in `~/.runpod/config.toml` across a `s
 | `FATAL: need 2 GPUs, found 1` | stale 2-GPU assertion | require `>= 1` |
 | `no attribute 'num_hidden_layers'` | multimodal config nests under `text_config` | getattr fallback |
 | `Could not find transformer layers` | 5.x moved VLM text stack | add `model.model.language_model.layers` |
+| `BatchEncoding + list` TypeError | 5.x `apply_chat_template(tokenize=True)` returns BatchEncoding | `_chat_ids()` helper → `list[int]` |
+| `.cuda_compat.env` reverts to 12.8 | step-0 check re-hardcoded the version | route through `cuda_compat.sh` |
 | pod keeps billing after run | no `RUNPOD_POD_ID` / unauth `runpodctl` | configure both |
