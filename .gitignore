@@ -5,3 +5,16 @@
 
 # OS noise
 .DS_Store
+
+# Experiment outputs live INSIDE the repo (exp/) so plots, reports, scores, gate tables, logs and the
+# comparison are all git-tracked. Only the bulky binaries are excluded — those go to HF datasets.
+exp/**/activations/
+exp/**/responses/
+exp/**/vectors/
+exp/**/release/
+exp/**/*.pt
+exp/**/*.jsonl
+exp/**/*.jsonl.gz
+exp/**/.cache/
+exp/preflight/
+exp/*.supervisor.log

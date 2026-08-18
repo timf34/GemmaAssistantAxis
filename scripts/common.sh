@@ -2,7 +2,7 @@
 # Shared config for all scripts. Override any of these via environment variables.
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AXIS_DIR="$REPO_DIR/assistant-axis"
-EXP_ROOT="${EXP_ROOT:-/workspace/exp}"
+EXP_ROOT="${EXP_ROOT:-$REPO_DIR/exp}"
 
 QUESTION_COUNT="${QUESTION_COUNT:-120}"   # 120 -> 600 responses/role (~overnight); 240 -> full paper scale (~2x time)
 MIN_COUNT="${MIN_COUNT:-25}"              # min fully-role-playing responses for a role vector (paper: 50 at 1200/role)

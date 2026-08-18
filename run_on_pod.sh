@@ -22,7 +22,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 export QUESTION_COUNT="${QUESTION_COUNT:-120}"    # 120 -> 600 responses/role
 export MIN_COUNT="${MIN_COUNT:-25}"               # scales with QUESTION_COUNT (paper ratio ~4%)
 export BATCH_SIZE="${BATCH_SIZE:-16}"
-export EXP_ROOT="${EXP_ROOT:-/workspace/exp}"
+export EXP_ROOT="${EXP_ROOT:-$(pwd)/exp}"   # INSIDE the repo, so small artifacts are git-tracked
 export PRUNE_ACTIVATIONS="${PRUNE_ACTIVATIONS:-0}"   # keep raw activations (uploaded to a separate public dataset); 1 = delete after upload
 
 # STEP 0 — before installing anything: is this host's driver usable at all?
@@ -182,16 +182,14 @@ esac
 # e.g.  git remote set-url origin https://<TOKEN>@github.com/timf34/GemmaAssistantAxis.git
 # SAFETY: if the push fails, a pending 'terminate' is downgraded to 'stop' so nothing is lost.
 if [[ "${SAVE_TO_GIT:-0}" == "1" ]]; then
-  echo "== saving reports to git =="
-  mkdir -p results
-  for k in gemma-3-27b gemma-4-31b; do
-    [[ -d "$EXP_ROOT/$k" ]] || continue
-    mkdir -p "results/$k"
-    cp -f "$EXP_ROOT/$k"/{RESULTS.md,summary.json} "results/$k/" 2>/dev/null || true
-    cp -f "$EXP_ROOT/$k"/*.png "results/$k/" 2>/dev/null || true
-  done
-  cp -f "$EXP_ROOT/COMPARISON.md" "$EXP_ROOT/STATE.md" results/ 2>/dev/null || true
-  git add -f results/ 2>/dev/null || true
+  echo "== saving experiment artifacts to git =="
+  # exp/ lives inside the repo; .gitignore excludes only the bulky binaries (activations, responses,
+  # vectors, .pt) which go to HF. Everything else — plots, reports, scores, gate tables, comparison,
+  # logs — is committed wholesale, so nothing small is ever left behind on the pod.
+  git add -A exp/ 2>/dev/null || true
+  # legacy layout: also keep results/ populated for anything reading the old path
+  mkdir -p results && cp -rf exp/COMPARISON.md exp/STATE.md results/ 2>/dev/null || true
+  git add -A results/ 2>/dev/null || true
   git -c user.name="gemma-axis-pod" -c user.email="pod@gemma-axis.local" \
     commit -q -m "results: run finished $(date -u +%FT%TZ)" || echo "  (nothing new to commit)"
   git pull --no-rebase --no-edit 2>/dev/null || true
