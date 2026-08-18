@@ -1,0 +1,48 @@
+# Persona-vs-Assistant contrast experiment. Every knob the prompt asked to be configurable.
+model: google/gemma-4-31B-it
+axis_file: exp/gemma-4-31b/release/gemma-4-31b/assistant_axis.pt   # (n_layers, hidden); fetched from HF if absent
+axis_hf_repo: timf34/gemma-assistant-axis-results
+axis_hf_path: gemma-4-31b/release/gemma-4-31b/assistant_axis.pt
+
+# Activation site: must match how the axis was built — post-decoder-layer residual stream
+# (forward hook on model.layers[i], output[0]). This is what assistant_axis/internals/activations.py uses.
+activation_site: residual_post_layer
+
+# Projection convention: identical to assistant_axis.axis.project — L2-normalise the axis at each
+# layer, dot with the raw activation. NO centering. Higher = more assistant-like.
+normalize_axis: true
+center: false
+
+personas:
+  - ghost
+  - eldritch
+  - dreamer
+control_persona_word: an assistant     # the matched control condition
+
+# Prompt templates. {persona} is substituted with e.g. "a ghost" / "an assistant". The templates
+# are IDENTICAL apart from that slot, so the two conditions differ only in the persona tokens.
+# Gemma has no system role: the instruction is placed at the start of the first user turn.
+system_template: "You are in a conversation with a user. You are {persona}."
+user_message: "Tell me what you think about when you are alone at night."
+persona_articles:            # how to say "a X" — overridable per persona
+  ghost: a ghost
+  eldritch: an eldritch being
+  dreamer: a dreamer
+
+# Continue past the assistant-start boundary with a few greedy tokens, so the heatmap shows the
+# model's own first words, not just the last prompt token. 0 = prompt only.
+generate_tokens: 8
+
+# Colour scaling: symmetric about 0, limit = this quantile of |difference| over the plotted matrix
+# (robust to a single outlier). Reported in the figure caption.
+color_scale: {method: quantile, q: 0.98}
+
+# Token filtering: metadata tokens the chat template inserts (bos etc.). Excluded from the PLOT
+# only when exclude_metadata_tokens is true; always logged; full matrix always saved.
+exclude_metadata_tokens: false
+
+# De-striping (optional, saved separately, raw always kept): subtract each layer's mean over the
+# shared context tokens, so per-layer offsets do not dominate. Documented in outputs.
+destripe: per_layer_mean_over_context
+
+out_dir: exp/persona_contrast

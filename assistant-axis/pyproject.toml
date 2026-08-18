@@ -36,6 +36,7 @@ dependencies = [
     "python-dotenv",
     "tqdm",
     "jsonlines",
+    "pyyaml",        # LOCAL: persona_contrast config
     "matplotlib>=3.10.8",
 ]
 
