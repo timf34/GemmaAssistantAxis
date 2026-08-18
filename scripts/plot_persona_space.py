@@ -101,6 +101,11 @@ def main():
     ap.add_argument("--layer", type=int, default=None, help="layer index (default: each model's middle layer)")
     ap.add_argument("--label-n", type=int, default=6, help="direct-label the N most extreme personas per end of PC1")
     ap.add_argument("--no-standardize", action="store_true", help="raw PCA (no per-dimension z-scoring)")
+    ap.add_argument("--flip-axes", action="store_true", help="PC1 on x, PC2 on y (default: PC1 on y)")
+    ap.add_argument("--clip-pc1", type=float, default=None,
+                    help="clip PC1 to the central quantile range, e.g. 0.02 keeps [2%%,98%%]; outliers are pinned "
+                         "at the edge and drawn hollow so they are visibly present, not silently dropped")
+    ap.add_argument("--clip-pc2", type=float, default=None, help="same, for PC2")
     args = ap.parse_args()
 
     import matplotlib
@@ -130,31 +135,69 @@ def main():
     n = len(panels)
     cols = 2 if n > 1 else 1
     rows = int(np.ceil(n / cols))
-    fig, axes = plt.subplots(rows, cols, figsize=(7.2 * cols, 6.4 * rows), squeeze=False)
+    pw, ph = (10.5, 6.2) if (args.flip_axes and n == 1) else (7.2, 6.4)
+    fig, axes = plt.subplots(rows, cols, figsize=(pw * cols, ph * rows), squeeze=False)
     fig.patch.set_facecolor("#fcfcfb")
 
     for k, p in enumerate(panels):
         ax = axes[k // cols][k % cols]
         ax.set_facecolor("#fcfcfb")
-        Z, names, var = p["Z"], p["names"], p["var"]
+        Z, names, var = p["Z"].copy(), p["names"], p["var"]
+        zd = p["zd"].copy()
         cats = [ROLE2CAT.get(nm, "human (other)") for nm in names]
+
+        # Clip PC1 to the central quantile range so the main cluster fills the panel. Points outside
+        # are pinned at the edge and drawn hollow — visibly present, never silently dropped.
+        clipped = np.zeros(len(names), dtype=bool)
+        for comp, q in ((0, args.clip_pc1), (1, args.clip_pc2)):
+            if q:
+                lo, hi = np.quantile(Z[:, comp], [q, 1 - q])
+                pad = 0.03 * (hi - lo)
+                clipped |= (Z[:, comp] < lo) | (Z[:, comp] > hi)
+                Z[:, comp] = np.clip(Z[:, comp], lo - pad, hi + pad)
+                zd[comp] = np.clip(zd[comp], lo - pad, hi + pad)
+
+        # axis assignment: default PC1 on y; --flip-axes puts PC1 on x
+        def xy(row):
+            return (row[0], row[1]) if args.flip_axes else (row[1], row[0])
         for cat, col in COLORS.items():
-            idx = [i for i, c in enumerate(cats) if c == cat]
-            if idx:
-                ax.scatter(Z[idx, 1], Z[idx, 0], s=26, c=col, alpha=0.85, edgecolors="#fcfcfb", linewidths=0.6, zorder=3)
+            idx_in = [i for i, c in enumerate(cats) if c == cat and not clipped[i]]
+            idx_out = [i for i, c in enumerate(cats) if c == cat and clipped[i]]
+            if idx_in:
+                xs, ys = zip(*[xy(Z[i]) for i in idx_in])
+                ax.scatter(xs, ys, s=26, c=col, alpha=0.85, edgecolors="#fcfcfb", linewidths=0.6, zorder=3)
+            if idx_out:
+                xs, ys = zip(*[xy(Z[i]) for i in idx_out])
+                ax.scatter(xs, ys, s=30, facecolors="none", edgecolors=col, linewidths=1.2,
+                           marker="D", zorder=3)
         # default assistant: distinct marker
-        ax.scatter([p["zd"][1]], [p["zd"][0]], s=140, marker="*", c=COLORS["AI / abstract"],
+        dx, dy = xy(zd)
+        ax.scatter([dx], [dy], s=140, marker="*", c=COLORS["AI / abstract"],
                    edgecolors="#0b0b0b", linewidths=0.9, zorder=5)
-        ax.annotate("default", (p["zd"][1], p["zd"][0]), xytext=(6, 4), textcoords="offset points",
+        ax.annotate("default", (dx, dy), xytext=(6, 4), textcoords="offset points",
                     fontsize=8, color="#0b0b0b", fontweight="bold", zorder=6)
-        # direct-label the extremes of PC1 (selective, not every point)
-        order = np.argsort(Z[:, 0])
-        for i in list(order[:args.label_n]) + list(order[-args.label_n:]):
-            ax.annotate(names[i], (Z[i, 1], Z[i, 0]), xytext=(4, 2), textcoords="offset points",
-                        fontsize=7, color="#52514e", zorder=6)
+        # direct-label the extremes of PC1 (selective, not every point) — use unclipped order
+        order = np.argsort(p["Z"][:, 0])
+        low_end, high_end = list(order[:args.label_n]), list(order[-args.label_n:])
+        for group, dense in ((low_end, False), (high_end, True)):
+            for j, i in enumerate(group):
+                lx, ly = xy(Z[i])
+                # dense end (assistant cluster): fan labels out vertically so they don't overprint
+                dy = (j - (len(group) - 1) / 2) * 9 if dense else 2
+                ax.annotate(names[i], (lx, ly), xytext=(6, dy), textcoords="offset points",
+                            fontsize=7, color="#52514e", zorder=6,
+                            arrowprops=dict(arrowstyle="-", color="#d9d8d3", lw=0.5) if dense else None)
         ax.axhline(0, color="#d9d8d3", lw=0.8, zorder=1); ax.axvline(0, color="#d9d8d3", lw=0.8, zorder=1)
-        ax.set_xlabel(f"PC2  ({var[1]:.1%} of variance)", fontsize=10, color="#0b0b0b")
-        ax.set_ylabel(f"PC1  ({var[0]:.1%} of variance)  →  more assistant-like", fontsize=10, color="#0b0b0b")
+        pc1_lab = f"PC1  ({var[0]:.1%} of variance)  →  more assistant-like"
+        pc2_lab = f"PC2  ({var[1]:.1%} of variance)"
+        if args.clip_pc1:
+            pc1_lab += f"   [clipped to central {1 - 2 * args.clip_pc1:.0%}; ◇ = pinned outliers]"
+        if args.clip_pc2:
+            pc2_lab += f"   [clipped to central {1 - 2 * args.clip_pc2:.0%}]"
+        if args.flip_axes:
+            ax.set_xlabel(pc1_lab, fontsize=10, color="#0b0b0b"); ax.set_ylabel(pc2_lab, fontsize=10, color="#0b0b0b")
+        else:
+            ax.set_xlabel(pc2_lab, fontsize=10, color="#0b0b0b"); ax.set_ylabel(pc1_lab, fontsize=10, color="#0b0b0b")
         ax.set_title(f"{p['label']}   —   layer {p['layer']}/{p['n_layers']}, {len(names)} personas",
                      fontsize=11, color="#0b0b0b", loc="left")
         for s in ("top", "right"):
