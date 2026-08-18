@@ -14,6 +14,17 @@ was fixed. If you are bringing up a new model here, expect the same shape of pro
 `openai 2.54.0`, and `uv.lock` already pins it. Run `bash scripts/doctor.sh` — it checks most of
 this in about a minute.
 
+**Outcome.** With every fix below applied, preflight passed end to end on gemma-4-31B-it at
+2026-08-18 00:08 UTC (`activation entry shape: (60, 5376)`, pirate responses scoring 3/3) and the
+full overnight run launched:
+```
+MODELS_ONLY=gemma-4-31b SAVE_TO_GIT=1 SHUTDOWN=stop RUNPOD_POD_ID=<id> bash run_on_pod.sh
+```
+Eleven blockers were hit in sequence. Each surfaced only after the previous one was fixed, and each
+one is a fresh diagnosis rather than a known fix — nobody online hits these, because they are specific
+to this codebase meeting a `*ForConditionalGeneration` model on transformers 5.x. Serving Gemma 4
+under vLLM was never the hard part.
+
 ---
 
 ## 1. `torch.cuda.is_available()` is False — "driver too old"
