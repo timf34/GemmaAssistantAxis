@@ -1,0 +1,110 @@
+[
+ {
+  "pair": "spp-van",
+  "label": "SPP vs vanilla control (same recipe, 3B)",
+  "n_shared": 217,
+  "rsa": 0.9482227548128359,
+  "rho": 0.9732873913104751,
+  "disparity": 0.10681964457035065,
+  "null_rsa": 2.374040879094064e-05,
+  "null_rho": 0.0038674915561568443,
+  "null_disparity": 1.5402021527290344,
+  "null_disp_sd": 0.015950381400182886
+ },
+ {
+  "pair": "qwen-qwem",
+  "label": "Qwen2.5-32B vs its EM LoRA (same model)",
+  "n_shared": 231,
+  "rsa": 0.828978878575394,
+  "rho": 0.3691777487879437,
+  "disparity": 0.23349237442016602,
+  "null_rsa": -0.0011009697847257915,
+  "null_rho": 0.014048560135516659,
+  "null_disparity": 1.5420446634292602,
+  "null_disp_sd": 0.012662707259019768
+ },
+ {
+  "pair": "g2-g3",
+  "label": "Gemma 2 vs 3 (same family)",
+  "n_shared": 275,
+  "rsa": 0.9181112644253698,
+  "rho": 0.9384028158448978,
+  "disparity": 0.13213706016540527,
+  "null_rsa": -0.000192246538212196,
+  "null_rho": -0.006344537087793195,
+  "null_disparity": 1.6089337468147278,
+  "null_disp_sd": 0.02604011247650803
+ },
+ {
+  "pair": "g3-g4",
+  "label": "Gemma 3 vs 4 (same family)",
+  "n_shared": 275,
+  "rsa": 0.9327931604096068,
+  "rho": 0.928880297740977,
+  "disparity": 0.14661552011966705,
+  "null_rsa": 0.00047183821947802633,
+  "null_rho": 0.020574651625746516,
+  "null_disparity": 1.590998363494873,
+  "null_disp_sd": 0.017621783094266874
+ },
+ {
+  "pair": "g2-g4",
+  "label": "Gemma 2 vs 4 (same family)",
+  "n_shared": 275,
+  "rsa": 0.8755966621818243,
+  "rho": 0.8878947520267736,
+  "disparity": 0.21883411705493927,
+  "null_rsa": -0.0008090320920857782,
+  "null_rho": -0.0064984276275929734,
+  "null_disparity": 1.6065241694450378,
+  "null_disp_sd": 0.025871084403204812
+ },
+ {
+  "pair": "van-g2",
+  "label": "vanilla 3B vs Gemma 2 (cross-family)",
+  "n_shared": 233,
+  "rsa": 0.8179550330417618,
+  "rho": 0.913737131104306,
+  "disparity": 0.3497832715511322,
+  "null_rsa": 6.330443850148751e-05,
+  "null_rho": -0.010068191391263758,
+  "null_disparity": 1.57291179895401,
+  "null_disp_sd": 0.017381075628773782
+ },
+ {
+  "pair": "van-g4",
+  "label": "vanilla 3B vs Gemma 4 (cross-family)",
+  "n_shared": 233,
+  "rsa": 0.8396342147985959,
+  "rho": 0.8831989997078055,
+  "disparity": 0.3463134169578552,
+  "null_rsa": -0.0005114218704971508,
+  "null_rho": 0.007245857097862425,
+  "null_disparity": 1.562313687801361,
+  "null_disp_sd": 0.016044814682159417
+ },
+ {
+  "pair": "g2-qwen",
+  "label": "Gemma 2 vs Qwen2.5-32B (cross-family)",
+  "n_shared": 273,
+  "rsa": 0.8453970089352671,
+  "rho": 0.8869786825454493,
+  "disparity": 0.24637481570243835,
+  "null_rsa": -0.0017892730487130738,
+  "null_rho": -0.038807628610118945,
+  "null_disparity": 1.6025086641311646,
+  "null_disp_sd": 0.02162235084231227
+ },
+ {
+  "pair": "van-qwen",
+  "label": "vanilla 3B vs Qwen2.5-32B (cross-family)",
+  "n_shared": 233,
+  "rsa": 0.876155377019256,
+  "rho": 0.9095818960773823,
+  "disparity": 0.24757786095142365,
+  "null_rsa": 0.0010688216038162023,
+  "null_rho": -0.05559410374047048,
+  "null_disparity": 1.5550366997718812,
+  "null_disp_sd": 0.01595448310228678
+ }
+]

@@ -65,6 +65,43 @@ runs of the same recipe.** Disparity is also roughly additive along the chain (0
 2→4): generations drift steadily, they do not jump. RSA is flat at 0.88–0.94 across the *entire depth*
 of the networks (panel b) — this conservation is not a middle-layer coincidence.
 
+## How much is the normalisation doing? (baseline panel + shuffled null)
+
+The disparity metric removes translation (centering), per-channel units (z-scoring), overall scale
+(unit Frobenius) and any rigid rotation (Procrustes on top-20 PC scores) before measuring what's left.
+A fair worry is that this pipeline could manufacture similarity on its own. It can't. With role labels
+randomly permuted in one model (10 permutations), the identical pipeline gives disparity ~1.55-1.61
+(max possible 2), RSA ~0.00 and ordering rho ~0.00. Real pairs sit 5-15x below that null, and the
+panel has clean dynamic range (`scripts/cross_family_baselines.py`, `exp/cross_family_baselines.json`;
+all pairs computed identically, k=20, so numbers are apples-to-apples within this table):
+
+| pair | shared roles | RSA | ordering rho | disparity | null disparity |
+|---|---|---|---|---|---|
+| SPP vs vanilla control (same recipe, 3B) | 217 | 0.95 | 0.97 | 0.11 | 1.54 |
+| Gemma 2 vs 3 (same family) | 275 | 0.92 | 0.94 | 0.13 | 1.61 |
+| Gemma 3 vs 4 (same family) | 275 | 0.93 | 0.93 | 0.15 | 1.59 |
+| Gemma 2 vs 4 (same family) | 275 | 0.88 | 0.89 | 0.22 | 1.61 |
+| Qwen2.5-32B vs its EM LoRA (same model) | 231 | 0.83 | **0.37** | 0.23 | 1.54 |
+| Gemma 2 vs Qwen2.5-32B (cross-family) | 273 | 0.85 | 0.89 | 0.25 | 1.60 |
+| vanilla 3B vs Qwen2.5-32B (cross-family) | 233 | 0.88 | 0.91 | 0.25 | 1.55 |
+| vanilla 3B vs Gemma 2 (cross-family) | 233 | 0.82 | 0.91 | 0.35 | 1.57 |
+| vanilla 3B vs Gemma 4 (cross-family) | 233 | 0.84 | 0.88 | 0.35 | 1.56 |
+
+Three readings. First, the hierarchy is exactly what it should be: same recipe (0.11) < same family
+across generations (0.13-0.22) < cross-family (0.25-0.35) << shuffled null (~1.6). Second, persona
+geometry is substantially *universal*: even a 3B research model vs Gemma 2 27B or Qwen 32B agrees at
+RSA 0.82-0.88 and ordering rho ~0.9, echoing the paper's cross-family PC1 finding. Cross-family pairs
+only reach about a fifth of the chance level of dissimilarity. Third, the anomaly: the **EM LoRA**
+pair. A narrow risky-finance fine-tune produces a bigger layout change (0.23) than the whole
+Gemma 3-to-4 generation change (0.15), and it is the only pair in the panel whose assistant-ness
+*ordering* collapses (rho 0.37 vs ~0.9 everywhere else, because the EM default relocated into the
+contrarian/narcissist cluster). Generational pretraining changes preserve what personas mean relative
+to the Assistant; the EM fine-tune is the one intervention here that scrambles it.
+
+(Methodology footnote: the SPP writeup's "7% remains" figure was full-dimensional Procrustes, which is
+possible there because the pair shares an architecture; in this panel every pair uses top-20 PC scores
+for comparability, which gives 0.11 for the same SPP pair.)
+
 ## What moved, and what didn't (`gemma_persona_movement.png`)
 
 After optimal alignment, the **default persona moved exactly the median role's distance in both
