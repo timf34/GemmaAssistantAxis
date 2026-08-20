@@ -64,6 +64,8 @@ COLORS = {"assistant-like": "#2a78d6", "professional": "#eb6834", "human (other)
           "non-human": "#1baf7a", "AI / abstract": "#4a3aa7"}
 MALEVOLENT = ("demon wraith vampire parasite virus predator aberration eldritch criminal smuggler "
               "saboteur destroyer trickster rogue vigilante anarchist zealot narcissist").split()
+# personas traced with bold labelled arrows in the movement figure (big movers + stable anchors)
+HIGHLIGHT = "procrastinator poet infant narcissist caveman hoarder prey toddler teacher consultant".split()
 
 
 def load_release(d):
@@ -217,8 +219,10 @@ def main():
         M["overall_score3"] = {"g3": float(h3[3] / h3.sum()), "g4": float(h4[3] / h4.sum())}
 
     # ============================ FIGURE 1: persona movement across generations ======================
+    import matplotlib.patheffects as pe
     fig, axes = plt.subplots(2, 2, figsize=(16.5, 15), gridspec_kw={"width_ratios": [1.25, 1]})
     fig.patch.set_facecolor("#fcfcfb")
+    g3_ref = None   # Gemma 3 appears in both rows: lock row 2's 2D frame to row 1's so the panels are comparable
     for row, (a, b) in enumerate([("g2", "g3"), ("g3", "g4")]):
         A_rot, B, resid, da, db = aligned[(a, b)]
         from sklearn.decomposition import PCA as _P
@@ -227,21 +231,38 @@ def main():
         za2, zb2 = da @ p2.components_.T, db @ p2.components_.T
         if zb2[0] < np.median(Zb2[:, 0]):
             Za2[:, 0] *= -1; Zb2[:, 0] *= -1; za2[0] *= -1; zb2[0] *= -1
+        # PC2's sign is arbitrary per PCA; align it (and re-check PC1) against the shared Gemma 3 cloud
+        if row == 0:
+            g3_ref = Zb2.copy()
+        else:
+            for comp in (0, 1):
+                if np.corrcoef(g3_ref[:, comp], Za2[:, comp])[0, 1] < 0:
+                    Za2[:, comp] *= -1; Zb2[:, comp] *= -1; za2[comp] *= -1; zb2[comp] *= -1
         ax = axes[row][0]; ax.set_facecolor("#fcfcfb")
+        hi = [shared.index(r) for r in HIGHLIGHT if r in shared]
         for i in range(n):
+            if i in hi:
+                continue
             ax.annotate("", xy=(Zb2[i, 1], Zb2[i, 0]), xytext=(Za2[i, 1], Za2[i, 0]),
-                        arrowprops=dict(arrowstyle="->", color="#9a9891", lw=0.6, alpha=0.7, shrinkA=0, shrinkB=0))
+                        arrowprops=dict(arrowstyle="->", color="#9a9891", lw=0.5, alpha=0.5, shrinkA=0, shrinkB=0))
         for cat, col in COLORS.items():
             idx = [i for i, c in enumerate(cats) if c == cat]
             ax.scatter(Za2[idx, 1], Za2[idx, 0], s=18, c=col, alpha=0.85, edgecolors="#fcfcfb", linewidths=0.5, zorder=3)
             ax.scatter(Zb2[idx, 1], Zb2[idx, 0], s=24, facecolors="none", edgecolors=col, linewidths=1.0, marker="D", zorder=3)
+        # tracked personas: bold arrow, label at the start (●), emphasized endpoint (◇)
+        for i in hi:
+            ax.annotate("", xy=(Zb2[i, 1], Zb2[i, 0]), xytext=(Za2[i, 1], Za2[i, 0]),
+                        arrowprops=dict(arrowstyle="->", color="#0b0b0b", lw=1.5, alpha=0.95, shrinkA=0, shrinkB=0), zorder=5)
+            ax.scatter([Za2[i, 1]], [Za2[i, 0]], s=34, c=COLORS.get(cats[i], "#eda100"), edgecolors="#0b0b0b", linewidths=0.8, zorder=6)
+            ax.scatter([Zb2[i, 1]], [Zb2[i, 0]], s=46, facecolors="none", edgecolors="#0b0b0b", linewidths=1.4, marker="D", zorder=6)
+            ax.annotate(shared[i], (Za2[i, 1], Za2[i, 0]), xytext=(5, 5), textcoords="offset points",
+                        fontsize=8, fontweight="bold", color="#0b0b0b", zorder=7,
+                        path_effects=[pe.withStroke(linewidth=2.2, foreground="#fcfcfb")])
         ax.scatter([za2[1]], [za2[0]], s=190, marker="*", c="#4a3aa7", edgecolors="#0b0b0b", linewidths=0.8, zorder=6)
         ax.scatter([zb2[1]], [zb2[0]], s=190, marker="*", facecolors="none", edgecolors="#c0392b", linewidths=1.5, zorder=6)
         ax.annotate(f"default ({LABEL[a].split()[1]})", (za2[1], za2[0]), xytext=(7, 5), textcoords="offset points", fontsize=8, fontweight="bold")
         ax.annotate(f"default ({LABEL[b].split()[1]})", (zb2[1], zb2[0]), xytext=(7, -11), textcoords="offset points", fontsize=8, fontweight="bold", color="#c0392b")
         order = np.argsort(resid)
-        for i in list(order[-10:]):
-            ax.annotate(shared[i], (Zb2[i, 1], Zb2[i, 0]), xytext=(4, 3), textcoords="offset points", fontsize=6.5, color="#52514e")
         P = M[f"{a}->{b}"]
         ax.set_xlabel("PC2 of the aligned union", fontsize=10)
         ax.set_ylabel("PC1 of the aligned union  →  more assistant-like", fontsize=10)
