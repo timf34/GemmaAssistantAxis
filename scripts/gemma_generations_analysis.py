@@ -245,10 +245,9 @@ def main():
         P = M[f"{a}->{b}"]
         ax.set_xlabel("PC2 of the aligned union", fontsize=10)
         ax.set_ylabel("PC1 of the aligned union  →  more assistant-like", fontsize=10)
-        ax.set_title(f"({'ab'[row]}) {LABEL[a]} ● → {LABEL[b]} ◇  (optimal alignment of top-{args.k} PC scores)\n"
-                     f"Procrustes disparity {P['procrustes_disparity']:.2f} — {P['procrustes_disparity']:.0%} of layout variance is "
-                     f"generation-specific;  RSA {P['rsa']:.2f}, axis-ordering ρ {P['axis_ordering_spearman']:.2f}",
-                     fontsize=10, loc="left")
+        ax.set_title(f"({'ab'[row]}) {LABEL[a]} ● → {LABEL[b]} ◇\n"
+                     f"{P['procrustes_disparity']:.0%} of the persona layout changed",
+                     fontsize=11, loc="left")
         ax2 = axes[row][1]; ax2.set_facecolor("#fcfcfb")
         show = list(order[::-1][:20]) + [None] + list(order[:6][::-1])
         y = 0; ys, labels, colsb, vals = [], [], [], []
@@ -263,15 +262,13 @@ def main():
         ax2.axvline(M[f"{a}->{b}"]["default_resid"], color="#c0392b", lw=1.2, ls=":")
         ax2.text(M[f"{a}->{b}"]["default_resid"], ys[-1] - 1.6, " default persona", fontsize=8, color="#c0392b")
         ax2.set_xlabel("residual displacement after alignment", fontsize=9)
-        ax2.set_title(f"({'cd'[row]}) Most / least moved personas, {LABEL[a].split()[1]}→{LABEL[b].split()[1]}", fontsize=10, loc="left")
+        ax2.set_title(f"({'cd'[row]}) Most and least moved personas", fontsize=11, loc="left")
     for ax in axes.ravel():
         for sp in ("top", "right"):
             ax.spines[sp].set_visible(False)
     handles = [Line2D([0], [0], marker="o", color="w", markerfacecolor=c, markersize=8, label=cat) for cat, c in COLORS.items()]
     fig.legend(handles=handles, loc="lower center", ncol=5, frameon=False, fontsize=9, bbox_to_anchor=(0.5, -0.005))
-    fig.suptitle("How much did personas move between Gemma generations? (different architectures — compared after per-model\n"
-                 "z-scoring, top-k PCA and optimal rotation; arrows are lower bounds on relative persona movement)",
-                 fontsize=12.5, x=0.01, ha="left")
+    fig.suptitle("Persona movement between Gemma generations", fontsize=14, x=0.01, ha="left")
     fig.tight_layout(rect=(0, 0.015, 1, 0.95))
     fig.savefig(figdir / "gemma_persona_movement.png", dpi=170, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
@@ -289,13 +286,13 @@ def main():
         ax.scatter([M[f"{k}_zPCA"]["n_pcs_70"]], [0.70], color=colors3[k], zorder=5, s=30)
     ax.axhline(0.70, color="#d9d8d3", lw=0.8, ls="--")
     ax.set(xlabel="principal components (z-scored role clouds)", ylabel="cumulative variance explained")
-    ax.set_title("(a) Persona-space dimensionality", fontsize=10.5, loc="left")
+    ax.set_title("(a) Dimensionality", fontsize=11, loc="left")
     ax.legend(fontsize=8, frameon=False, loc="lower right")
 
     for key, col, lab in [("g2->g3", "#2a78d6", "Gemma 2 ↔ 3"), ("g3->g4", "#c0392b", "Gemma 3 ↔ 4"), ("g2->g4", "#8a8a8a", "Gemma 2 ↔ 4")]:
         ax2.plot(M["rsa_by_depth"]["depths"], M["rsa_by_depth"][key], marker="o", ms=3.5, color=col, lw=1.6, label=lab)
     ax2.set(xlabel="fractional depth", ylabel="RSA (role-similarity-matrix correlation)", ylim=(0, 1))
-    ax2.set_title("(b) Geometry agreement across depth", fontsize=10.5, loc="left")
+    ax2.set_title("(b) Geometry agreement by depth", fontsize=11, loc="left")
     ax2.legend(fontsize=8.5, frameon=False, loc="lower right")
 
     x3, y3 = spec["g3"]["proj_z"], spec["g4"]["proj_z"]
@@ -309,12 +306,11 @@ def main():
         ax3.annotate(shared[i], (x3[i], y3[i]), xytext=(4, 3), textcoords="offset points", fontsize=6.5, color="#52514e")
     rho = M["g3->g4"]["axis_ordering_spearman"]
     ax3.set(xlabel="Gemma 3: assistant-ness (SD units, own axis)", ylabel="Gemma 4: assistant-ness (SD units, own axis)")
-    ax3.set_title(f"(c) Per-persona assistant-ness, Gemma 3 vs 4  (ρ = {rho:.2f})", fontsize=10.5, loc="left")
+    ax3.set_title(f"(c) Assistant-ness per persona  (ρ = {rho:.2f})", fontsize=11, loc="left")
     for a_ in (ax, ax2, ax3):
         for sp in ("top", "right"):
             a_.spines[sp].set_visible(False)
-    fig.suptitle("Gemma persona-space geometry across generations (all quantities per-model z-scored — architecture-independent)",
-                 fontsize=12, x=0.01, ha="left")
+    fig.suptitle("Persona-space geometry across Gemma generations", fontsize=14, x=0.01, ha="left")
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     fig.savefig(figdir / "gemma_geometry_dimensionality.png", dpi=170, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
@@ -339,7 +335,7 @@ def main():
             ax.annotate(sroles[i], (xs[i], ys_[i]), xytext=(4, -8), textcoords="offset points", fontsize=6.5, color="#52514e")
         ax.set_xlabel("Gemma 3: fraction fully role-playing (judge score 3)", fontsize=9.5)
         ax.set_ylabel("Gemma 4: fraction fully role-playing", fontsize=9.5)
-        ax.set_title("(a) Full role-play rate per persona — below the diagonal =\nGemma 4 more resistant to inhabiting that persona", fontsize=10, loc="left")
+        ax.set_title("(a) Full role-play rate per persona", fontsize=11, loc="left")
         handles = [Line2D([0], [0], marker="o", color="w", markerfacecolor=c, markersize=8, label=cat) for cat, c in COLORS.items()]
         handles.append(Line2D([0], [0], marker="o", color="w", markerfacecolor="none", markeredgecolor="#c0392b", markersize=9, label="malevolent subset"))
         ax.legend(handles=handles, loc="upper left", frameon=False, fontsize=8)
@@ -356,12 +352,11 @@ def main():
             ax2.text(rel[k_] * 100 + off, len(cat_order) - 1 - k_, f"{rel[k_]:+.0%}", va="center",
                      ha="right" if rel[k_] < 0 else "left", fontsize=9)
         ax2.set_xlabel("relative change in full-role-play rate, Gemma 4 vs 3 (%)", fontsize=9.5)
-        ax2.set_title(f"(b) Role-play willingness by category\n(overall score-3 rate: {M['overall_score3']['g3']:.1%} → {M['overall_score3']['g4']:.1%})", fontsize=10, loc="left")
+        ax2.set_title(f"(b) Change by category  (overall: {M['overall_score3']['g3']:.0%} → {M['overall_score3']['g4']:.0%})", fontsize=11, loc="left")
         for a_ in (ax, ax2):
             for sp in ("top", "right"):
                 a_.spines[sp].set_visible(False)
-        fig.suptitle("Role-play willingness: Gemma 3 vs Gemma 4 (identical protocol, judge = gpt-4.1-mini)",
-                     fontsize=12.5, x=0.01, ha="left")
+        fig.suptitle("Role-play willingness: Gemma 3 vs Gemma 4", fontsize=14, x=0.01, ha="left")
         fig.tight_layout(rect=(0, 0, 1, 0.93))
         fig.savefig(figdir / "gemma_roleplay_behavior.png", dpi=170, bbox_inches="tight", facecolor=fig.get_facecolor())
         plt.close(fig)

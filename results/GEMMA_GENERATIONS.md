@@ -104,9 +104,12 @@ for comparability, which gives 0.11 for the same SPP pair.)
 
 ## What moved, and what didn't (`gemma_persona_movement.png`)
 
-After optimal alignment, the **default persona moved exactly the median role's distance in both
-transitions** (residual 0.019 = median 0.019) — no generation specifically relocated the Assistant.
-The *least*-moved personas are the assistant/professional core: teacher, collaborator, consultant,
+After optimal alignment, the **default persona** (the model under neutral system prompts — a separate
+vector, not one of the 275 role vectors) **moved a typical amount in both transitions**: its residual
+sits at the 44th (2→3) and 50th (3→4) percentile of the role-residual distribution. The prompted
+"assistant" *role* is likewise mid-pack (rank 121/275 and 93/275 least-moved) — so no generation
+specifically relocated or specifically preserved the Assistant; it drifted like an ordinary persona.
+The *least*-moved personas are the professional core: teacher, collaborator, consultant,
 doctor, debugger, auditor, programmer, economist, strategist. The *most*-moved are the informal,
 liminal, low-status-human periphery:
 
