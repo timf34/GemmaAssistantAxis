@@ -80,6 +80,10 @@ def main():
                 role = f.stem
                 scores = load_scores(scores_dir, role)
                 kept = 0
+                # Scores are keyed pos_p{prompt_idx}_q{question_idx}; the responses file is written in
+                # that same order, so the positional key is i -> p=i//qn, q=i%qn. (The entries' own
+                # 'key' field does NOT match — joining on it silently yields score=null everywhere.)
+                qn = max(1, len(scores) // 5) if scores else 0
                 with open(f) as fh:
                     for i, line in enumerate(fh):
                         if args.per_role and kept >= args.per_role:
@@ -91,9 +95,13 @@ def main():
                         sysp, question, response = extract(entry)
                         if response is None:
                             continue
-                        key = entry.get("key") or entry.get("id") or str(i)
+                        key = f"pos_p{i // qn}_q{i % qn}" if qn else str(i)
+                        score = scores.get(key)
+                        if score is None:
+                            key2 = entry.get("key") or entry.get("id")
+                            score = scores.get(key2) if key2 else None
                         out.write(json.dumps({
-                            "stage": stage, "role": role, "score": scores.get(key),
+                            "stage": stage, "role": role, "score": score,
                             "system_prompt": sysp, "question": question, "response": response,
                         }) + "\n")
                         kept += 1
